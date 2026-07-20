@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Joel Winarske
+# SPDX-License-Identifier: MIT
+
 .dart_tool/
 .packages
 pubspec.lock

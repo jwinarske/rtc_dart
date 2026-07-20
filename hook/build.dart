@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Joel Winarske
+// SPDX-License-Identifier: MIT
+
 // Native-assets build hook.
 //
 // Fetches/pins the prebuilt libwebrtc.so for the target triple from the OCI

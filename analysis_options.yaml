@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Joel Winarske
+# SPDX-License-Identifier: MIT
+
 include: package:lints/recommended.yaml
 
 analyzer:

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Joel Winarske
+# SPDX-License-Identifier: MIT
+
 # ffigen config — generates lib/src/ffi/lw_bindings.dart from the vendored
 # C ABI headers. Run: `dart run ffigen`.
 name: LwBindings

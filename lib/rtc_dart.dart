@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Joel Winarske
+// SPDX-License-Identifier: MIT
+
 /// rtc_dart — pure-Dart WebRTC control plane over libwebrtc.so.
 ///
 /// Frames never touch Dart. This library owns the control plane and brokers

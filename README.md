@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Joel Winarske
+SPDX-License-Identifier: MIT
+-->
+
 # rtc_dart
 
 Pure-Dart WebRTC **control plane** over `libwebrtc.so`, via `dart:ffi`.

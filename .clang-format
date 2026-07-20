@@ -1,2 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Joel Winarske
+# SPDX-License-Identifier: MIT
+
 # Helps IDEs format C/C++ consistently.
 BasedOnStyle: Google
