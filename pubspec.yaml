@@ -1,0 +1,26 @@
+name: rtc_dart
+description: >-
+  Pure-Dart WebRTC control plane over libwebrtc.so via dart:ffi. Zero Flutter
+  dependency. Frames never touch Dart — the data plane is native-to-native.
+  This package owns peer-connection lifecycle, SDP/ICE, transceivers, tracks,
+  datachannels, and stats, and brokers the track -> sink token binding.
+version: 0.1.0
+publish_to: none
+repository: https://github.com/jwinarske/rtc_dart
+
+environment:
+  sdk: ^3.5.0
+
+# No runtime dependencies beyond the SDK. ffi is part of the SDK surface used
+# here; the C ABI is vendored, not depended on.
+dependencies:
+  ffi: ^2.1.0
+
+dev_dependencies:
+  ffigen: ^13.0.0
+  lints: ^4.0.0
+  test: ^1.25.0
+
+# Native-assets: hook/build.dart fetches/pins prebuilt libwebrtc.so per target
+# triple from the OCI artifact store, exposed as a code asset resolved by
+# @Native() lookups. Source-build path is used under Yocto.

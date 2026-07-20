@@ -1,0 +1,23 @@
+# ffigen config — generates lib/src/ffi/lw_bindings.dart from the vendored
+# C ABI headers. Run: `dart run ffigen`.
+name: LwBindings
+description: Raw FFI bindings to the libwebrtc flat C ABI (lw_*). Internal.
+output: 'lib/src/ffi/lw_bindings.dart'
+ffi-native:
+  # @Native() external functions resolved against the libwebrtc.so code asset
+  # provided by hook/build.dart.
+  assetId: 'package:rtc_dart/rtc_dart.dart'
+headers:
+  entry-points:
+    - 'third_party/lw_abi/lw_video_sink.h'
+    - 'third_party/lw_abi/lw_c_api.h'
+  include-directives:
+    - 'third_party/lw_abi/**'
+compiler-opts:
+  - '-Ithird_party/lw_abi'
+preamble: |
+  // GENERATED — do not edit. Source: third_party/lw_abi (pinned LW_ABI_VERSION).
+  // ignore_for_file: type=lint, unused_field, unused_element
+comments:
+  style: any
+  length: full
