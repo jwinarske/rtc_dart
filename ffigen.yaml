@@ -3,24 +3,30 @@
 
 # ffigen config — generates lib/src/ffi/lw_bindings.dart from the vendored
 # C ABI headers. Run: `dart run ffigen`.
+#
+# Generates a DynamicLibrary-based binding class (LwBindings). The production
+# path resolves the library as a native code asset (hook/build.dart); the
+# binding class works with either an opened DynamicLibrary or that asset.
 name: LwBindings
 description: Raw FFI bindings to the libwebrtc flat C ABI (lw_*). Internal.
 output: 'lib/src/ffi/lw_bindings.dart'
-ffi-native:
-  # @Native() external functions resolved against the libwebrtc.so code asset
-  # provided by hook/build.dart.
-  assetId: 'package:rtc_dart/rtc_dart.dart'
+llvm-path:
+  - '/usr/lib64'
+  - '/lib64'
 headers:
   entry-points:
-    - 'third_party/lw_abi/lw_video_sink.h'
+    # lw_c_api.h includes lw_video_sink.h, so both surfaces are covered.
     - 'third_party/lw_abi/lw_c_api.h'
   include-directives:
     - 'third_party/lw_abi/**'
 compiler-opts:
   - '-Ithird_party/lw_abi'
+# lw_media_type is a plain C enum passed as int; the platform mimicking is
+# correct for our Linux targets.
+silence-enum-warning: true
 preamble: |
   // GENERATED — do not edit. Source: third_party/lw_abi (pinned LW_ABI_VERSION).
-  // ignore_for_file: type=lint, unused_field, unused_element
+  // ignore_for_file: type=lint, unused_field, unused_element, camel_case_types
 comments:
   style: any
   length: full
