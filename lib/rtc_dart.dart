@@ -22,10 +22,28 @@
 /// final track = pc.addTransceiver(MediaKind.video).receiver?.videoTrack;
 /// track?.bindSink(token);   // frames now flow natively
 /// ```
+///
+/// Events arrive as streams and the SDP operations return futures, both
+/// delivered to the listening isolate rather than on webrtc's signaling
+/// thread:
+///
+/// ```dart
+/// pc.onIceCandidate.listen(signaling.send);
+/// final offer = await pc.createOffer();
+/// await pc.setLocalDescription(offer);
+/// ```
 library rtc_dart;
 
 export 'src/native_library.dart' show RtcNativeException;
 export 'src/handle.dart' show RtcHandle;
+export 'src/events.dart'
+    show
+        RtcIceCandidate,
+        RtcIceConnectionState,
+        RtcIceGatheringState,
+        RtcPeerConnectionState,
+        RtcSessionDescription,
+        RtcSignalingState;
 export 'src/objects.dart'
     show
         MediaKind,
