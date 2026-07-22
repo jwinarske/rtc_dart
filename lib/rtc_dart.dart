@@ -10,7 +10,14 @@
 /// Handles own one native reference each and are reclaimed when collected, so
 /// nothing leaks if `dispose` is forgotten; `dispose` only makes the release
 /// prompt. Order does not matter either way -- a factory may be released
-/// before the peer connections it created. No `Pointer` appears in this API,
+/// before the peer connections it created.
+///
+/// One exception is worth knowing: listening to an event stream registers a
+/// native callback, and a live native callback keeps the isolate alive. A
+/// program that listens to [RtcPeerConnection]'s streams, or to
+/// [RtcVideoTrack.onFrame], must dispose those handles or it will not exit.
+/// Handles whose streams are never listened to register nothing and are
+/// unaffected. No `Pointer` appears in this API,
 /// with one deliberate exception:
 /// [VideoSinkRegistry.registerNativeSink], whose caller is native code that
 /// already holds one.
@@ -38,6 +45,7 @@ export 'src/native_library.dart' show RtcNativeException;
 export 'src/handle.dart' show RtcHandle;
 export 'src/events.dart'
     show
+        RtcFrameInfo,
         RtcIceCandidate,
         RtcIceConnectionState,
         RtcIceGatheringState,
@@ -51,6 +59,8 @@ export 'src/objects.dart'
         RtcFactory,
         RtcPeerConnection,
         RtcReceiver,
+        RtcRtpSender,
         RtcTransceiver,
+        RtcVideoSource,
         RtcVideoTrack;
 export 'src/video_sink.dart' show VideoSinkRegistry, VideoSinkToken;
