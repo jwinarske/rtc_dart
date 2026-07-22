@@ -182,6 +182,27 @@ class LwBindings {
   late final _lw_video_track_unbind_sink = _lw_video_track_unbind_sinkPtr
       .asFunction<int Function(ffi.Pointer<lw_video_track_t>)>();
 
+  int lw_video_track_set_frame_callback(
+    ffi.Pointer<lw_video_track_t> track,
+    lw_frame_cb cb,
+    ffi.Pointer<ffi.Void> user,
+  ) {
+    return _lw_video_track_set_frame_callback(
+      track,
+      cb,
+      user,
+    );
+  }
+
+  late final _lw_video_track_set_frame_callbackPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<lw_video_track_t>, lw_frame_cb,
+              ffi.Pointer<ffi.Void>)>>('lw_video_track_set_frame_callback');
+  late final _lw_video_track_set_frame_callback =
+      _lw_video_track_set_frame_callbackPtr.asFunction<
+          int Function(ffi.Pointer<lw_video_track_t>, lw_frame_cb,
+              ffi.Pointer<ffi.Void>)>();
+
   /// Creates a peer connection on `factory` with a default configuration.
   /// Returns NULL on failure; the handle owns one reference (lw_release).
   ffi.Pointer<lw_pc_t> lw_pc_create(
@@ -602,6 +623,17 @@ typedef Dartlw_video_sink_token = int;
 
 /// Opaque handle to a video track, produced by the control-plane shim.
 typedef lw_video_track_t = lw_video_track;
+
+/// Per-decoded-frame callback (fires on the decoder delivery thread) reporting
+/// the frame's pixel dimensions. For counting/telemetry only -- the frame
+/// itself never crosses here (native frames flow through the sink registry).
+/// Must return promptly and must not re-enter the track API (it runs on the
+/// delivery path). Pass cb = NULL to clear.
+typedef lw_frame_cb = ffi.Pointer<ffi.NativeFunction<lw_frame_cbFunction>>;
+typedef lw_frame_cbFunction = ffi.Void Function(
+    ffi.Int width, ffi.Int height, ffi.Pointer<ffi.Void> user);
+typedef Dartlw_frame_cbFunction = void Function(
+    int width, int height, ffi.Pointer<ffi.Void> user);
 
 final class lw_pc extends ffi.Opaque {}
 

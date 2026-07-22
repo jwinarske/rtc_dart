@@ -86,6 +86,15 @@ LW_C_API int lw_video_track_bind_sink(lw_video_track_t* track,
  * on success, negative on error. */
 LW_C_API int lw_video_track_unbind_sink(lw_video_track_t* track);
 
+/* Per-decoded-frame callback (fires on the decoder delivery thread) reporting
+ * the frame's pixel dimensions. For counting/telemetry only -- the frame
+ * itself never crosses here (native frames flow through the sink registry).
+ * Must return promptly and must not re-enter the track API (it runs on the
+ * delivery path). Pass cb = NULL to clear. */
+typedef void (*lw_frame_cb)(int width, int height, void* user);
+LW_C_API int lw_video_track_set_frame_callback(lw_video_track_t* track,
+                                               lw_frame_cb cb, void* user);
+
 /* ---- Peer connection / transceiver / receiver ------------------------- */
 
 /* Opaque handles produced by the calls below. */
