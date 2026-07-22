@@ -11,6 +11,7 @@
 #ifndef LW_C_API_H_
 #define LW_C_API_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "lw_video_sink.h"
@@ -136,6 +137,49 @@ LW_C_API lw_receiver_t* lw_transceiver_receiver(lw_transceiver_t* transceiver);
  * lw_video_track_bind_sink, or NULL if the receiver has no video track. Handle
  * owns one reference. */
 LW_C_API lw_video_track_t* lw_receiver_video_track(lw_receiver_t* receiver);
+
+/* ---- Local video ------------------------------------------------------ */
+
+/* Opaque handles for the send side. */
+typedef struct lw_video_source lw_video_source_t;
+typedef struct lw_sender lw_sender_t;
+
+/* Creates a video source that frames are pushed into, rather than one driven
+ * by a capture device. `label` may be NULL. Returns NULL on failure; the
+ * handle owns one reference. */
+LW_C_API lw_video_source_t* lw_factory_create_video_source(
+    lw_factory_t* factory, const char* label);
+
+/* Pushes one I420 frame into a source. `data` holds width*height*3/2 bytes:
+ * the Y plane, then U, then V, each tightly packed. The data is copied, so it
+ * need not outlive the call. Returns 0 on success, negative on error (null
+ * handle, bad dimensions, or a size that does not match them).
+ *
+ * Frames are consumed at whatever rate they are pushed; the caller sets the
+ * pace. */
+LW_C_API int lw_video_source_push_i420(lw_video_source_t* source, int width,
+                                       int height, const uint8_t* data,
+                                       size_t size);
+
+/* Creates a local video track fed by `source`. `id` may be NULL. Returns NULL
+ * on failure; the handle owns one reference. */
+LW_C_API lw_video_track_t* lw_factory_create_video_track(
+    lw_factory_t* factory, lw_video_source_t* source, const char* id);
+
+/* Attaches a local track to a peer connection, in the streams named by
+ * `stream_ids` (may be NULL when `stream_id_count` is 0). Returns the sender,
+ * or NULL on failure; the handle owns one reference. */
+LW_C_API lw_sender_t* lw_pc_add_track(lw_pc_t* pc, lw_video_track_t* track,
+                                      const char* const* stream_ids,
+                                      size_t stream_id_count);
+
+/* Enables or disables a track. A disabled track still flows, but carries
+ * black frames -- this is mute, not removal. Works on local and remote tracks
+ * alike. Returns 0 on success, negative on error. */
+LW_C_API int lw_video_track_set_enabled(lw_video_track_t* track, int enabled);
+
+/* Whether a track is enabled. Returns 1, 0, or negative on error. */
+LW_C_API int lw_video_track_enabled(lw_video_track_t* track);
 
 /* ---- SDP negotiation -------------------------------------------------- */
 

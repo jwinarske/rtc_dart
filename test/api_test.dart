@@ -22,7 +22,7 @@ void main() {
   });
 
   test('reports the ABI the bindings were generated against', () {
-    expect(Rtc.abiVersion, 2);
+    expect(Rtc.abiVersion, 3);
   });
 
   test('walks factory -> peer connection -> transceiver -> track', () {
@@ -88,6 +88,6 @@ void main() {
       factory.createPeerConnection();
     }
     await Future<void>.delayed(const Duration(milliseconds: 200));
-    expect(Rtc.abiVersion, 2); // library still healthy
+    expect(Rtc.abiVersion, 3); // library still healthy
   });
 }
