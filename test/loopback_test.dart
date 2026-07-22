@@ -120,7 +120,34 @@ void main() {
     expect(received.first.width, _width);
     expect(received.first.height, _height);
     expect(pushed, greaterThan(0));
+
+    // The counters must agree with what the frame stream independently saw.
+    final stats = remoteTrack.stats;
+    expect(stats.framesDelivered, greaterThanOrEqualTo(received.length));
+    expect(stats.lastWidth, _width);
+    expect(stats.lastHeight, _height);
+    expect(stats.lastFrameAt, isNotNull);
+    // No sink is bound -- frames never enter Dart -- so on this build they
+    // took the software path rather than reaching a native consumer.
+    expect(stats.framesNative, 0);
+    expect(stats.framesCpu + stats.framesDropped,
+        greaterThanOrEqualTo(received.length));
+    expect(stats.isZeroCopy, isFalse);
   }, timeout: const Timeout(Duration(seconds: 120)));
+
+  test('counters start at zero on a track that has decoded nothing', () {
+    final factory = RtcFactory.create();
+    addTearDown(factory.dispose);
+    final source = factory.createVideoSource();
+    addTearDown(source.dispose);
+    final track = factory.createVideoTrack(source);
+    addTearDown(track.dispose);
+
+    final stats = track.stats;
+    expect(stats.framesDelivered, 0);
+    expect(stats.lastFrameAt, isNull);
+    expect(stats.isZeroCopy, isFalse); // nothing delivered yet
+  });
 
   test('a frame whose size contradicts its dimensions is refused', () {
     final factory = RtcFactory.create();

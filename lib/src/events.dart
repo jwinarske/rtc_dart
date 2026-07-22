@@ -132,6 +132,57 @@ class RtcFrameInfo {
   String toString() => 'RtcFrameInfo(${width}x$height)';
 }
 
+/// What a track's local pipeline did with the frames it decoded.
+///
+/// Describes this side only -- what the decoder produced and where it went.
+/// It says nothing about the network.
+///
+/// No rates: take two samples and divide by the elapsed time to get a rate
+/// over whatever window suits, rather than one chosen here.
+class RtcVideoStats {
+  const RtcVideoStats({
+    required this.framesDelivered,
+    required this.framesNative,
+    required this.framesCpu,
+    required this.framesDropped,
+    required this.lastWidth,
+    required this.lastHeight,
+    required this.lastFrameAt,
+  });
+
+  /// Every decoded frame the track delivered, whatever path it then took.
+  final int framesDelivered;
+
+  /// Delivered as a dmabuf to a bound sink, which the sink took.
+  final int framesNative;
+
+  /// Delivered through the software path, so the frame was converted.
+  /// Nonzero means the zero-copy path is not in use.
+  final int framesCpu;
+
+  /// Native frames that reached no sink: none bound, the sink declined, or
+  /// the buffer was some other implementation's native type.
+  final int framesDropped;
+
+  /// Geometry of the most recent frame, or 0 before the first.
+  final int lastWidth;
+  final int lastHeight;
+
+  /// When the most recent frame arrived, on the system's monotonic clock, or
+  /// null before the first. Comparable only with other values from this
+  /// clock -- it is not wall time.
+  final Duration? lastFrameAt;
+
+  /// Whether every frame so far reached a sink as a dmabuf.
+  bool get isZeroCopy =>
+      framesDelivered > 0 && framesCpu == 0 && framesDropped == 0;
+
+  @override
+  String toString() => 'RtcVideoStats(delivered: $framesDelivered, '
+      'native: $framesNative, cpu: $framesCpu, dropped: $framesDropped, '
+      'last: ${lastWidth}x$lastHeight)';
+}
+
 // The observer delivers plain ints. These map them; they live in lib/src and
 // are not exported, so they stay internal to the package.
 

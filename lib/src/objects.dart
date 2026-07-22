@@ -624,6 +624,35 @@ class RtcVideoTrack extends RtcHandle {
     }
   }
 
+  /// What this track's pipeline has done with the frames it decoded.
+  ///
+  /// Cheap enough to read every frame: the counters behind it are read without
+  /// taking the lock the delivery path holds.
+  RtcVideoStats get stats {
+    final out = pkg_ffi.calloc<lw.LwVideoTrackStats>();
+    try {
+      out.ref.size = ffi.sizeOf<lw.LwVideoTrackStats>();
+      final rc = library.bindings
+          .lw_video_track_get_stats(pointer.cast<lw.lw_video_track_t>(), out);
+      if (rc != 0) {
+        throw RtcNativeException('lw_video_track_get_stats failed ($rc)');
+      }
+      final lastFrameUs = out.ref.last_frame_us;
+      return RtcVideoStats(
+        framesDelivered: out.ref.frames_delivered,
+        framesNative: out.ref.frames_native,
+        framesCpu: out.ref.frames_cpu,
+        framesDropped: out.ref.frames_dropped,
+        lastWidth: out.ref.last_width,
+        lastHeight: out.ref.last_height,
+        lastFrameAt:
+            lastFrameUs > 0 ? Duration(microseconds: lastFrameUs) : null,
+      );
+    } finally {
+      pkg_ffi.calloc.free(out);
+    }
+  }
+
   /// The size of each frame the track delivers, for counting and telemetry.
   ///
   /// Deliberately carries no pixels: on the zero-copy path the frame never
