@@ -22,7 +22,7 @@ extern "C" {
 /* Bumped when the C ABI surface changes incompatibly. Checked at load time
  * between the loader and libwebrtc.so, and against the decoder's shared
  * tree-revision pin. */
-#define LW_ABI_VERSION 2
+#define LW_ABI_VERSION 3
 
 /* Max planes in a single dmabuf frame (e.g. NV12 = 2, I420 = 3). */
 #define LW_MAX_PLANES 4

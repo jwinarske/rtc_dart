@@ -306,6 +306,151 @@ class LwBindings {
   late final _lw_receiver_video_track = _lw_receiver_video_trackPtr.asFunction<
       ffi.Pointer<lw_video_track_t> Function(ffi.Pointer<lw_receiver_t>)>();
 
+  /// Creates a video source that frames are pushed into, rather than one driven
+  /// by a capture device. `label` may be NULL. Returns NULL on failure; the
+  /// handle owns one reference.
+  ffi.Pointer<lw_video_source_t> lw_factory_create_video_source(
+    ffi.Pointer<lw_factory_t> factory1,
+    ffi.Pointer<ffi.Char> label,
+  ) {
+    return _lw_factory_create_video_source(
+      factory1,
+      label,
+    );
+  }
+
+  late final _lw_factory_create_video_sourcePtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Pointer<lw_video_source_t> Function(ffi.Pointer<lw_factory_t>,
+              ffi.Pointer<ffi.Char>)>>('lw_factory_create_video_source');
+  late final _lw_factory_create_video_source =
+      _lw_factory_create_video_sourcePtr.asFunction<
+          ffi.Pointer<lw_video_source_t> Function(
+              ffi.Pointer<lw_factory_t>, ffi.Pointer<ffi.Char>)>();
+
+  /// Pushes one I420 frame into a source. `data` holds width*height*3/2 bytes:
+  /// the Y plane, then U, then V, each tightly packed. The data is copied, so it
+  /// need not outlive the call. Returns 0 on success, negative on error (null
+  /// handle, bad dimensions, or a size that does not match them).
+  ///
+  /// Frames are consumed at whatever rate they are pushed; the caller sets the
+  /// pace.
+  int lw_video_source_push_i420(
+    ffi.Pointer<lw_video_source_t> source,
+    int width,
+    int height,
+    ffi.Pointer<ffi.Uint8> data,
+    int size,
+  ) {
+    return _lw_video_source_push_i420(
+      source,
+      width,
+      height,
+      data,
+      size,
+    );
+  }
+
+  late final _lw_video_source_push_i420Ptr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<lw_video_source_t>, ffi.Int, ffi.Int,
+              ffi.Pointer<ffi.Uint8>, ffi.Size)>>('lw_video_source_push_i420');
+  late final _lw_video_source_push_i420 =
+      _lw_video_source_push_i420Ptr.asFunction<
+          int Function(ffi.Pointer<lw_video_source_t>, int, int,
+              ffi.Pointer<ffi.Uint8>, int)>();
+
+  /// Creates a local video track fed by `source`. `id` may be NULL. Returns NULL
+  /// on failure; the handle owns one reference.
+  ffi.Pointer<lw_video_track_t> lw_factory_create_video_track(
+    ffi.Pointer<lw_factory_t> factory1,
+    ffi.Pointer<lw_video_source_t> source,
+    ffi.Pointer<ffi.Char> id,
+  ) {
+    return _lw_factory_create_video_track(
+      factory1,
+      source,
+      id,
+    );
+  }
+
+  late final _lw_factory_create_video_trackPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Pointer<lw_video_track_t> Function(
+              ffi.Pointer<lw_factory_t>,
+              ffi.Pointer<lw_video_source_t>,
+              ffi.Pointer<ffi.Char>)>>('lw_factory_create_video_track');
+  late final _lw_factory_create_video_track =
+      _lw_factory_create_video_trackPtr.asFunction<
+          ffi.Pointer<lw_video_track_t> Function(ffi.Pointer<lw_factory_t>,
+              ffi.Pointer<lw_video_source_t>, ffi.Pointer<ffi.Char>)>();
+
+  /// Attaches a local track to a peer connection, in the streams named by
+  /// `stream_ids` (may be NULL when `stream_id_count` is 0). Returns the sender,
+  /// or NULL on failure; the handle owns one reference.
+  ffi.Pointer<lw_sender_t> lw_pc_add_track(
+    ffi.Pointer<lw_pc_t> pc,
+    ffi.Pointer<lw_video_track_t> track,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> stream_ids,
+    int stream_id_count,
+  ) {
+    return _lw_pc_add_track(
+      pc,
+      track,
+      stream_ids,
+      stream_id_count,
+    );
+  }
+
+  late final _lw_pc_add_trackPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Pointer<lw_sender_t> Function(
+              ffi.Pointer<lw_pc_t>,
+              ffi.Pointer<lw_video_track_t>,
+              ffi.Pointer<ffi.Pointer<ffi.Char>>,
+              ffi.Size)>>('lw_pc_add_track');
+  late final _lw_pc_add_track = _lw_pc_add_trackPtr.asFunction<
+      ffi.Pointer<lw_sender_t> Function(
+          ffi.Pointer<lw_pc_t>,
+          ffi.Pointer<lw_video_track_t>,
+          ffi.Pointer<ffi.Pointer<ffi.Char>>,
+          int)>();
+
+  /// Enables or disables a track. A disabled track still flows, but carries
+  /// black frames -- this is mute, not removal. Works on local and remote tracks
+  /// alike. Returns 0 on success, negative on error.
+  int lw_video_track_set_enabled(
+    ffi.Pointer<lw_video_track_t> track,
+    int enabled,
+  ) {
+    return _lw_video_track_set_enabled(
+      track,
+      enabled,
+    );
+  }
+
+  late final _lw_video_track_set_enabledPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<lw_video_track_t>,
+              ffi.Int)>>('lw_video_track_set_enabled');
+  late final _lw_video_track_set_enabled = _lw_video_track_set_enabledPtr
+      .asFunction<int Function(ffi.Pointer<lw_video_track_t>, int)>();
+
+  /// Whether a track is enabled. Returns 1, 0, or negative on error.
+  int lw_video_track_enabled(
+    ffi.Pointer<lw_video_track_t> track,
+  ) {
+    return _lw_video_track_enabled(
+      track,
+    );
+  }
+
+  late final _lw_video_track_enabledPtr = _lookup<
+          ffi.NativeFunction<ffi.Int Function(ffi.Pointer<lw_video_track_t>)>>(
+      'lw_video_track_enabled');
+  late final _lw_video_track_enabled = _lw_video_track_enabledPtr
+      .asFunction<int Function(ffi.Pointer<lw_video_track_t>)>();
+
   /// Creates an offer/answer. On success `on_success` receives the SDP and its
   /// type ("offer"/"answer").
   void lw_pc_create_offer(
@@ -681,6 +826,14 @@ typedef lw_pc_t = lw_pc;
 typedef lw_transceiver_t = lw_transceiver;
 typedef lw_receiver_t = lw_receiver;
 
+final class lw_video_source extends ffi.Opaque {}
+
+final class lw_sender extends ffi.Opaque {}
+
+/// Opaque handles for the send side.
+typedef lw_video_source_t = lw_video_source;
+typedef lw_sender_t = lw_sender;
+
 /// Completion callbacks for the async SDP operations below. They are invoked on
 /// the signaling thread. `user` is the opaque cookie passed to the originating
 /// call.
@@ -851,6 +1004,6 @@ final class LwPcObserver extends ffi.Struct {
               ffi.Pointer<ffi.Void> user)>> on_track;
 }
 
-const int LW_ABI_VERSION = 2;
+const int LW_ABI_VERSION = 3;
 
 const int LW_MAX_PLANES = 4;
