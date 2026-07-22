@@ -4,24 +4,35 @@
 /// rtc_dart — pure-Dart WebRTC control plane over libwebrtc.so.
 ///
 /// Frames never touch Dart. This library owns the control plane and brokers
-/// the `track -> sink token` binding; the data plane is native-to-native.
-/// See README.md.
+/// the `track -> sink token` binding; decoded frames travel from the decoder
+/// to a native sink without crossing the FFI boundary.
 ///
-/// Public API is handle-based with `NativeFinalizer`; no `Pointer` types
-/// escape this boundary.
+/// Handles own one native reference each and are reclaimed when collected, so
+/// nothing leaks if `dispose` is forgotten; `dispose` only makes the release
+/// prompt. Order does not matter either way -- a factory may be released
+/// before the peer connections it created. No `Pointer` appears in this API,
+/// with one deliberate exception:
+/// [VideoSinkRegistry.registerNativeSink], whose caller is native code that
+/// already holds one.
+///
+/// ```dart
+/// Rtc.initialize(libraryPath: '/path/to/libwebrtc.so');
+/// final factory = RtcFactory.create();
+/// final pc = factory.createPeerConnection();
+/// final track = pc.addTransceiver(MediaKind.video).receiver?.videoTrack;
+/// track?.bindSink(token);   // frames now flow natively
+/// ```
 library rtc_dart;
 
-// Barrel — public surface is re-exported here as the idiomatic layer lands.
-// Nothing is exported yet: the hand-written layer over the generated bindings
-// (lib/src/ffi/lw_bindings.dart) is not implemented yet.
-//
-// Planned exports:
-//   export 'src/factory.dart'         show RtcFactory, LwFactoryConfig;
-//   export 'src/peer_connection.dart' show RtcPeerConnection;
-//   export 'src/track.dart'           show VideoTrack, AudioTrack; // bindSink(token)
-//   export 'src/data_channel.dart'    show DataChannel;
-//   export 'src/events.dart'          show RtcEvent;
-//   export 'src/pipeline_stats.dart'  show PipelineStats;
-
-/// Must match `LW_ABI_VERSION` in the vendored C ABI header.
-const int lwAbiVersion = 1;
+export 'src/native_library.dart' show RtcNativeException;
+export 'src/handle.dart' show RtcHandle;
+export 'src/objects.dart'
+    show
+        MediaKind,
+        Rtc,
+        RtcFactory,
+        RtcPeerConnection,
+        RtcReceiver,
+        RtcTransceiver,
+        RtcVideoTrack;
+export 'src/video_sink.dart' show VideoSinkRegistry, VideoSinkToken;
