@@ -121,6 +121,17 @@ class RtcIceCandidate {
       'RtcIceCandidate($sdpMid#$sdpMLineIndex, ${candidate.length} bytes)';
 }
 
+/// The size of one frame a track delivered.
+class RtcFrameInfo {
+  const RtcFrameInfo({required this.width, required this.height});
+
+  final int width;
+  final int height;
+
+  @override
+  String toString() => 'RtcFrameInfo(${width}x$height)';
+}
+
 // The observer delivers plain ints. These map them; they live in lib/src and
 // are not exported, so they stay internal to the package.
 

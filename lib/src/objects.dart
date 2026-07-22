@@ -3,6 +3,7 @@
 
 import 'dart:async';
 import 'dart:ffi' as ffi;
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart' as pkg_ffi;
 
@@ -117,6 +118,42 @@ class RtcFactory extends RtcHandle {
     return RtcFactory._(pointer.cast(), library);
   }
 
+  /// Creates a video source that frames are pushed into.
+  ///
+  /// This is the send side's entry point: a source is fed by
+  /// [RtcVideoSource.pushI420] rather than by a capture device.
+  RtcVideoSource createVideoSource({String? label}) {
+    final name = (label ?? '').toNativeUtf8();
+    try {
+      final created = library.bindings.lw_factory_create_video_source(
+          pointer.cast<lw.lw_factory_t>(), name.cast());
+      if (created == ffi.nullptr) {
+        throw RtcNativeException('lw_factory_create_video_source failed');
+      }
+      return RtcVideoSource._(created.cast(), library);
+    } finally {
+      pkg_ffi.malloc.free(name);
+    }
+  }
+
+  /// Creates a local video track fed by [source].
+  RtcVideoTrack createVideoTrack(RtcVideoSource source, {String? id}) {
+    final trackId = (id ?? '').toNativeUtf8();
+    try {
+      final created = library.bindings.lw_factory_create_video_track(
+        pointer.cast<lw.lw_factory_t>(),
+        source.pointer.cast<lw.lw_video_source_t>(),
+        trackId.cast(),
+      );
+      if (created == ffi.nullptr) {
+        throw RtcNativeException('lw_factory_create_video_track failed');
+      }
+      return RtcVideoTrack._(created.cast(), library);
+    } finally {
+      pkg_ffi.malloc.free(trackId);
+    }
+  }
+
   /// Creates a peer connection with a default configuration.
   RtcPeerConnection createPeerConnection() {
     final created =
@@ -133,6 +170,10 @@ class RtcFactory extends RtcHandle {
 /// Events arrive as streams, and the SDP operations return futures. Both are
 /// fed by native callbacks that fire on webrtc's signaling thread and are
 /// delivered to this isolate, so nothing here runs on that thread.
+///
+/// The observer behind the streams is registered on first use, so a connection
+/// nobody listens to costs nothing. Once registered it keeps the isolate
+/// alive, so a program that listens must dispose the connection to exit.
 class RtcPeerConnection extends RtcHandle {
   RtcPeerConnection._(super.pointer, super.library);
 
@@ -298,6 +339,36 @@ class RtcPeerConnection extends RtcHandle {
     return RtcTransceiver._(result.cast(), library);
   }
 
+  /// Attaches a local [track], in the streams named by [streamIds].
+  RtcRtpSender addTrack(RtcVideoTrack track,
+      {List<String> streamIds = const []}) {
+    final ids = pkg_ffi.calloc<ffi.Pointer<ffi.Char>>(
+        streamIds.isEmpty ? 1 : streamIds.length);
+    final allocated = <ffi.Pointer<pkg_ffi.Utf8>>[];
+    try {
+      for (var i = 0; i < streamIds.length; i++) {
+        final id = streamIds[i].toNativeUtf8();
+        allocated.add(id);
+        ids[i] = id.cast();
+      }
+      final sender = library.bindings.lw_pc_add_track(
+        pointer.cast<lw.lw_pc_t>(),
+        track.pointer.cast<lw.lw_video_track_t>(),
+        ids,
+        streamIds.length,
+      );
+      if (sender == ffi.nullptr) {
+        throw RtcNativeException('lw_pc_add_track failed');
+      }
+      return RtcRtpSender._(sender.cast(), library);
+    } finally {
+      for (final id in allocated) {
+        pkg_ffi.malloc.free(id);
+      }
+      pkg_ffi.calloc.free(ids);
+    }
+  }
+
   /// Closes the connection. Idempotent; also run by [dispose].
   void close() {
     if (_closed || isDisposed) {
@@ -446,6 +517,52 @@ typedef _CandidateCb = ffi.Void Function(ffi.Pointer<ffi.Char>,
 typedef _TrackCb = ffi.Void Function(
     ffi.Pointer<lw.lw_transceiver_t>, ffi.Pointer<ffi.Void>);
 
+/// A video source that frames are pushed into.
+///
+/// This is the one place pixels cross into the library from Dart, and it is a
+/// copy: the receive side stays zero-copy, where frames go from the decoder to
+/// a native sink without passing through here.
+class RtcVideoSource extends RtcHandle {
+  RtcVideoSource._(super.pointer, super.library);
+
+  /// Pushes one I420 frame of [width] x [height].
+  ///
+  /// [data] holds the Y plane, then U, then V, each tightly packed --
+  /// `width * height * 3 ~/ 2` bytes in total. It is copied, so the caller may
+  /// reuse the buffer immediately.
+  ///
+  /// Frames are consumed at whatever rate they are pushed: the caller sets the
+  /// pace.
+  void pushI420(Uint8List data, {required int width, required int height}) {
+    final expected = width * height * 3 ~/ 2;
+    if (data.length != expected) {
+      throw ArgumentError.value(data.length, 'data.length',
+          'an I420 frame of $width x $height is $expected bytes');
+    }
+    final buffer = pkg_ffi.malloc<ffi.Uint8>(data.length);
+    try {
+      buffer.asTypedList(data.length).setAll(0, data);
+      final rc = library.bindings.lw_video_source_push_i420(
+        pointer.cast<lw.lw_video_source_t>(),
+        width,
+        height,
+        buffer,
+        data.length,
+      );
+      if (rc != 0) {
+        throw RtcNativeException('lw_video_source_push_i420 failed ($rc)');
+      }
+    } finally {
+      pkg_ffi.malloc.free(buffer);
+    }
+  }
+}
+
+/// The sending half of a peer connection, for one attached track.
+class RtcRtpSender extends RtcHandle {
+  RtcRtpSender._(super.pointer, super.library);
+}
+
 /// One direction pair of a peer connection.
 class RtcTransceiver extends RtcHandle {
   RtcTransceiver._(super.pointer, super.library);
@@ -485,6 +602,60 @@ class RtcVideoTrack extends RtcHandle {
   RtcVideoTrack._(super.pointer, super.library);
 
   VideoSinkToken? _bound;
+  StreamController<RtcFrameInfo>? _frames;
+  ffi.NativeCallable<lw.lw_frame_cbFunction>? _frameCb;
+
+  /// Whether the track is enabled. A disabled track still flows, but carries
+  /// black frames -- this is mute, not removal.
+  bool get enabled {
+    final rc = library.bindings
+        .lw_video_track_enabled(pointer.cast<lw.lw_video_track_t>());
+    if (rc < 0) {
+      throw RtcNativeException('lw_video_track_enabled failed ($rc)');
+    }
+    return rc != 0;
+  }
+
+  set enabled(bool value) {
+    final rc = library.bindings.lw_video_track_set_enabled(
+        pointer.cast<lw.lw_video_track_t>(), value ? 1 : 0);
+    if (rc != 0) {
+      throw RtcNativeException('lw_video_track_set_enabled failed ($rc)');
+    }
+  }
+
+  /// The size of each frame the track delivers, for counting and telemetry.
+  ///
+  /// Deliberately carries no pixels: on the zero-copy path the frame never
+  /// enters Dart at all, so this reports that a frame arrived and how big it
+  /// was, nothing more. Bind a native sink to do anything with the contents.
+  Stream<RtcFrameInfo> get onFrame {
+    final existing = _frames;
+    if (existing != null) {
+      return existing.stream;
+    }
+    final controller = StreamController<RtcFrameInfo>.broadcast();
+    final callback = ffi.NativeCallable<lw.lw_frame_cbFunction>.listener(
+      (int width, int height, ffi.Pointer<ffi.Void> _) {
+        if (!controller.isClosed) {
+          controller.add(RtcFrameInfo(width: width, height: height));
+        }
+      },
+    );
+    final rc = library.bindings.lw_video_track_set_frame_callback(
+        pointer.cast<lw.lw_video_track_t>(),
+        callback.nativeFunction,
+        ffi.nullptr);
+    if (rc != 0) {
+      callback.close();
+      controller.close();
+      throw RtcNativeException(
+          'lw_video_track_set_frame_callback failed ($rc)');
+    }
+    _frames = controller;
+    _frameCb = callback;
+    return controller.stream;
+  }
 
   /// Routes this track's frames to the sink [token] was registered for.
   ///
@@ -517,5 +688,16 @@ class RtcVideoTrack extends RtcHandle {
   bool get hasSink => _bound != null;
 
   @override
-  void beforeRelease() => unbindSink();
+  void beforeRelease() {
+    unbindSink();
+    // Clear the callback before the callable behind it goes away.
+    if (_frameCb != null) {
+      library.bindings.lw_video_track_set_frame_callback(
+          pointer.cast<lw.lw_video_track_t>(), ffi.nullptr, ffi.nullptr);
+      _frameCb!.close();
+      _frameCb = null;
+      _frames?.close();
+      _frames = null;
+    }
+  }
 }
