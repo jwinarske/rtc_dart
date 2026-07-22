@@ -80,7 +80,8 @@ class LwBindings {
       .asFunction<int Function(ffi.Pointer<lw_factory_t>)>();
 
   /// Retain/release any lw_* handle (all map to the shared RefCountInterface).
-  /// One pair covers every handle type. Null handles are ignored.
+  /// One pair covers every handle type. Null handles are ignored. Handles may be
+  /// released in any order: each keeps the factory it came from alive.
   void lw_retain(
     ffi.Pointer<ffi.Void> handle,
   ) {
@@ -108,6 +109,23 @@ class LwBindings {
           'lw_release');
   late final _lw_release =
       _lw_releasePtr.asFunction<void Function(ffi.Pointer<ffi.Void>)>();
+
+  /// Frees a string delivered to a callback below. Every `char*` a callback
+  /// receives is owned by the callback, which passes it here once done. NULL is
+  /// ignored.
+  void lw_string_free(
+    ffi.Pointer<ffi.Char> s,
+  ) {
+    return _lw_string_free(
+      s,
+    );
+  }
+
+  late final _lw_string_freePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Char>)>>(
+          'lw_string_free');
+  late final _lw_string_free =
+      _lw_string_freePtr.asFunction<void Function(ffi.Pointer<ffi.Char>)>();
 
   /// Registers a native video sink. `sink` and `user` are caller-owned and MUST
   /// outlive the binding (they are referenced, not copied). Returns an
@@ -664,10 +682,13 @@ typedef lw_transceiver_t = lw_transceiver;
 typedef lw_receiver_t = lw_receiver;
 
 /// Completion callbacks for the async SDP operations below. They are invoked on
-/// the signaling thread; a C++ consumer handles them directly. (The Dart path
-/// instead surfaces these results over an event port.) `user` is the opaque
-/// cookie passed to the originating call. Strings are valid only for the
-/// duration of the callback.
+/// the signaling thread. `user` is the opaque cookie passed to the originating
+/// call.
+///
+/// String payloads are owned by the callback and stay valid after it returns,
+/// so a consumer that has to hand the payload to another thread before reading
+/// it can do so; retire each with lw_string_free. Nothing is allocated for a
+/// NULL callback. A payload may be NULL if it could not be allocated.
 typedef lw_sdp_success_cb
     = ffi.Pointer<ffi.NativeFunction<lw_sdp_success_cbFunction>>;
 typedef lw_sdp_success_cbFunction = ffi.Void Function(ffi.Pointer<ffi.Char> sdp,
@@ -687,12 +708,101 @@ typedef lw_set_sdp_success_cbFunction = ffi.Void Function(
 typedef Dartlw_set_sdp_success_cbFunction = void Function(
     ffi.Pointer<ffi.Void> user);
 
+/// State values delivered to the observer callbacks below. These mirror the
+/// library's own RTC*State enums, which the shim static-asserts against, so a
+/// consumer needs only this header.
+enum lw_signaling_state {
+  LW_SIGNALING_STABLE(0),
+  LW_SIGNALING_HAVE_LOCAL_OFFER(1),
+  LW_SIGNALING_HAVE_REMOTE_OFFER(2),
+  LW_SIGNALING_HAVE_LOCAL_PRANSWER(3),
+  LW_SIGNALING_HAVE_REMOTE_PRANSWER(4),
+  LW_SIGNALING_CLOSED(5);
+
+  final int value;
+  const lw_signaling_state(this.value);
+
+  static lw_signaling_state fromValue(int value) => switch (value) {
+        0 => LW_SIGNALING_STABLE,
+        1 => LW_SIGNALING_HAVE_LOCAL_OFFER,
+        2 => LW_SIGNALING_HAVE_REMOTE_OFFER,
+        3 => LW_SIGNALING_HAVE_LOCAL_PRANSWER,
+        4 => LW_SIGNALING_HAVE_REMOTE_PRANSWER,
+        5 => LW_SIGNALING_CLOSED,
+        _ =>
+          throw ArgumentError("Unknown value for lw_signaling_state: $value"),
+      };
+}
+
+enum lw_pc_state {
+  LW_PC_STATE_NEW(0),
+  LW_PC_STATE_CONNECTING(1),
+  LW_PC_STATE_CONNECTED(2),
+  LW_PC_STATE_DISCONNECTED(3),
+  LW_PC_STATE_FAILED(4),
+  LW_PC_STATE_CLOSED(5);
+
+  final int value;
+  const lw_pc_state(this.value);
+
+  static lw_pc_state fromValue(int value) => switch (value) {
+        0 => LW_PC_STATE_NEW,
+        1 => LW_PC_STATE_CONNECTING,
+        2 => LW_PC_STATE_CONNECTED,
+        3 => LW_PC_STATE_DISCONNECTED,
+        4 => LW_PC_STATE_FAILED,
+        5 => LW_PC_STATE_CLOSED,
+        _ => throw ArgumentError("Unknown value for lw_pc_state: $value"),
+      };
+}
+
+enum lw_ice_gathering_state {
+  LW_ICE_GATHERING_NEW(0),
+  LW_ICE_GATHERING_GATHERING(1),
+  LW_ICE_GATHERING_COMPLETE(2);
+
+  final int value;
+  const lw_ice_gathering_state(this.value);
+
+  static lw_ice_gathering_state fromValue(int value) => switch (value) {
+        0 => LW_ICE_GATHERING_NEW,
+        1 => LW_ICE_GATHERING_GATHERING,
+        2 => LW_ICE_GATHERING_COMPLETE,
+        _ => throw ArgumentError(
+            "Unknown value for lw_ice_gathering_state: $value"),
+      };
+}
+
+enum lw_ice_connection_state {
+  LW_ICE_CONNECTION_NEW(0),
+  LW_ICE_CONNECTION_CHECKING(1),
+  LW_ICE_CONNECTION_COMPLETED(2),
+  LW_ICE_CONNECTION_CONNECTED(3),
+  LW_ICE_CONNECTION_FAILED(4),
+  LW_ICE_CONNECTION_DISCONNECTED(5),
+  LW_ICE_CONNECTION_CLOSED(6);
+
+  final int value;
+  const lw_ice_connection_state(this.value);
+
+  static lw_ice_connection_state fromValue(int value) => switch (value) {
+        0 => LW_ICE_CONNECTION_NEW,
+        1 => LW_ICE_CONNECTION_CHECKING,
+        2 => LW_ICE_CONNECTION_COMPLETED,
+        3 => LW_ICE_CONNECTION_CONNECTED,
+        4 => LW_ICE_CONNECTION_FAILED,
+        5 => LW_ICE_CONNECTION_DISCONNECTED,
+        6 => LW_ICE_CONNECTION_CLOSED,
+        _ => throw ArgumentError(
+            "Unknown value for lw_ice_connection_state: $value"),
+      };
+}
+
 /// Per-event C callbacks, invoked on the signaling thread. Any field may be
-/// NULL. State ints correspond to the library's RTC*State enum values. The
+/// NULL. State ints take the values of the enums above. The
 /// struct is copied on registration, so it need not outlive the call; the
 /// function pointers and `user` must remain valid until the observer is
-/// removed. For the Dart path these events are surfaced over an event port
-/// instead.
+/// removed.
 final class LwPcObserver extends ffi.Struct {
   /// sizeof(LwPcObserver)
   @ffi.Uint32()
@@ -718,7 +828,8 @@ final class LwPcObserver extends ffi.Struct {
               ffi.Void Function(ffi.Int state, ffi.Pointer<ffi.Void> user)>>
       on_ice_connection_state;
 
-  /// A local ICE candidate was gathered. Strings are valid for the call only.
+  /// A local ICE candidate was gathered. The strings are owned by the callback
+  /// (lw_string_free), as for the SDP callbacks above.
   external ffi.Pointer<
       ffi.NativeFunction<
           ffi.Void Function(
@@ -740,6 +851,6 @@ final class LwPcObserver extends ffi.Struct {
               ffi.Pointer<ffi.Void> user)>> on_track;
 }
 
-const int LW_ABI_VERSION = 1;
+const int LW_ABI_VERSION = 2;
 
 const int LW_MAX_PLANES = 4;

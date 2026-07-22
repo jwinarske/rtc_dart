@@ -53,9 +53,17 @@ LW_C_API int lw_factory_initialize(lw_factory_t* factory);
 /* ---- Handle reference counting ---------------------------------------- */
 
 /* Retain/release any lw_* handle (all map to the shared RefCountInterface).
- * One pair covers every handle type. Null handles are ignored. */
+ * One pair covers every handle type. Null handles are ignored. Handles may be
+ * released in any order: each keeps the factory it came from alive. */
 LW_C_API void lw_retain(void* handle);
 LW_C_API void lw_release(void* handle);
+
+/* ---- Callback string payloads ----------------------------------------- */
+
+/* Frees a string delivered to a callback below. Every `char*` a callback
+ * receives is owned by the callback, which passes it here once done. NULL is
+ * ignored. */
+LW_C_API void lw_string_free(char* s);
 
 /* ---- Video sink registry ---------------------------------------------- */
 
@@ -132,14 +140,16 @@ LW_C_API lw_video_track_t* lw_receiver_video_track(lw_receiver_t* receiver);
 /* ---- SDP negotiation -------------------------------------------------- */
 
 /* Completion callbacks for the async SDP operations below. They are invoked on
- * the signaling thread; a C++ consumer handles them directly. (The Dart path
- * instead surfaces these results over an event port.) `user` is the opaque
- * cookie passed to the originating call. Strings are valid only for the
- * duration of the callback. */
-typedef void (*lw_sdp_success_cb)(const char* sdp, const char* type,
-                                  void* user);
+ * the signaling thread. `user` is the opaque cookie passed to the originating
+ * call.
+ *
+ * String payloads are owned by the callback and stay valid after it returns,
+ * so a consumer that has to hand the payload to another thread before reading
+ * it can do so; retire each with lw_string_free. Nothing is allocated for a
+ * NULL callback. A payload may be NULL if it could not be allocated. */
+typedef void (*lw_sdp_success_cb)(char* sdp, char* type, void* user);
 typedef void (*lw_set_sdp_success_cb)(void* user);
-typedef void (*lw_sdp_failure_cb)(const char* error, void* user);
+typedef void (*lw_sdp_failure_cb)(char* error, void* user);
 
 /* Creates an offer/answer. On success `on_success` receives the SDP and its
  * type ("offer"/"answer"). */
@@ -166,21 +176,58 @@ LW_C_API void lw_pc_add_ice_candidate(lw_pc_t* pc, const char* mid,
 
 /* ---- Peer-connection events (observer) -------------------------------- */
 
+/* State values delivered to the observer callbacks below. These mirror the
+ * library's own RTC*State enums, which the shim static-asserts against, so a
+ * consumer needs only this header. */
+typedef enum lw_signaling_state {
+  LW_SIGNALING_STABLE = 0,
+  LW_SIGNALING_HAVE_LOCAL_OFFER = 1,
+  LW_SIGNALING_HAVE_REMOTE_OFFER = 2,
+  LW_SIGNALING_HAVE_LOCAL_PRANSWER = 3,
+  LW_SIGNALING_HAVE_REMOTE_PRANSWER = 4,
+  LW_SIGNALING_CLOSED = 5,
+} lw_signaling_state;
+
+typedef enum lw_pc_state {
+  LW_PC_STATE_NEW = 0,
+  LW_PC_STATE_CONNECTING = 1,
+  LW_PC_STATE_CONNECTED = 2,
+  LW_PC_STATE_DISCONNECTED = 3,
+  LW_PC_STATE_FAILED = 4,
+  LW_PC_STATE_CLOSED = 5,
+} lw_pc_state;
+
+typedef enum lw_ice_gathering_state {
+  LW_ICE_GATHERING_NEW = 0,
+  LW_ICE_GATHERING_GATHERING = 1,
+  LW_ICE_GATHERING_COMPLETE = 2,
+} lw_ice_gathering_state;
+
+typedef enum lw_ice_connection_state {
+  LW_ICE_CONNECTION_NEW = 0,
+  LW_ICE_CONNECTION_CHECKING = 1,
+  LW_ICE_CONNECTION_COMPLETED = 2,
+  LW_ICE_CONNECTION_CONNECTED = 3,
+  LW_ICE_CONNECTION_FAILED = 4,
+  LW_ICE_CONNECTION_DISCONNECTED = 5,
+  LW_ICE_CONNECTION_CLOSED = 6,
+} lw_ice_connection_state;
+
 /* Per-event C callbacks, invoked on the signaling thread. Any field may be
- * NULL. State ints correspond to the library's RTC*State enum values. The
+ * NULL. State ints take the values of the enums above. The
  * struct is copied on registration, so it need not outlive the call; the
  * function pointers and `user` must remain valid until the observer is
- * removed. For the Dart path these events are surfaced over an event port
- * instead. */
+ * removed. */
 typedef struct LwPcObserver {
   uint32_t size; /* sizeof(LwPcObserver) */
   void (*on_signaling_state)(int state, void* user);
   void (*on_connection_state)(int state, void* user);
   void (*on_ice_gathering_state)(int state, void* user);
   void (*on_ice_connection_state)(int state, void* user);
-  /* A local ICE candidate was gathered. Strings are valid for the call only. */
-  void (*on_ice_candidate)(const char* candidate, const char* sdp_mid,
-                           int sdp_mline_index, void* user);
+  /* A local ICE candidate was gathered. The strings are owned by the callback
+   * (lw_string_free), as for the SDP callbacks above. */
+  void (*on_ice_candidate)(char* candidate, char* sdp_mid, int sdp_mline_index,
+                           void* user);
   void (*on_renegotiation_needed)(void* user);
   /* A remote track arrived. `transceiver` is an OWNING handle: retire it with
    * lw_release; reach its receiver/video track via the transceiver
