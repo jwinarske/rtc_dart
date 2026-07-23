@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Joel Winarske
 // SPDX-License-Identifier: MIT
 
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'ffi/lw_bindings.dart' as lw;
 
 /// Signaling state of a peer connection.
@@ -100,6 +103,36 @@ class RtcSessionDescription {
   String toString() => 'RtcSessionDescription($type, ${sdp.length} bytes)';
 }
 
+/// State of a data channel.
+enum RtcDataChannelState {
+  connecting,
+  open,
+  closing,
+  closed;
+}
+
+/// One message received on a data channel.
+///
+/// Carries the bytes as they arrived. [text] decodes them as UTF-8, which is
+/// what the far side sent if it sent text; a binary message may not decode.
+class RtcDataChannelMessage {
+  const RtcDataChannelMessage({required this.data, required this.isBinary});
+
+  /// The message as it arrived.
+  final Uint8List data;
+
+  /// Whether the far side marked this a binary message rather than text.
+  final bool isBinary;
+
+  /// The bytes decoded as UTF-8. Throws on a binary message that is not valid
+  /// UTF-8, which is why [isBinary] is worth checking first.
+  String get text => utf8.decode(data);
+
+  @override
+  String toString() => 'RtcDataChannelMessage(${isBinary ? "binary" : "text"}, '
+      '${data.length} bytes)';
+}
+
 /// A local or remote ICE candidate.
 class RtcIceCandidate {
   const RtcIceCandidate({
@@ -185,6 +218,17 @@ class RtcVideoStats {
 
 // The observer delivers plain ints. These map them; they live in lib/src and
 // are not exported, so they stay internal to the package.
+
+RtcDataChannelState dataChannelStateFromNative(int value) =>
+    switch (lw.lw_data_channel_state.fromValue(value)) {
+      lw.lw_data_channel_state.LW_DATA_CHANNEL_CONNECTING =>
+        RtcDataChannelState.connecting,
+      lw.lw_data_channel_state.LW_DATA_CHANNEL_OPEN => RtcDataChannelState.open,
+      lw.lw_data_channel_state.LW_DATA_CHANNEL_CLOSING =>
+        RtcDataChannelState.closing,
+      lw.lw_data_channel_state.LW_DATA_CHANNEL_CLOSED =>
+        RtcDataChannelState.closed,
+    };
 
 RtcSignalingState signalingStateFromNative(int value) =>
     switch (lw.lw_signaling_state.fromValue(value)) {

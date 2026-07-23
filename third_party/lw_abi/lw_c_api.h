@@ -61,9 +61,13 @@ LW_C_API void lw_release(void* handle);
 
 /* ---- Callback string payloads ----------------------------------------- */
 
-/* Frees a string delivered to a callback below. Every `char*` a callback
+/* Frees a payload delivered to a callback below. Every `char*` a callback
  * receives is owned by the callback, which passes it here once done. NULL is
- * ignored. */
+ * ignored.
+ *
+ * Data channel messages come this way too. They are length-delimited, since a
+ * binary message may contain zero bytes, but a NUL is appended past the length
+ * so a text message can also be read as a C string. */
 LW_C_API void lw_string_free(char* s);
 
 /* ---- Video sink registry ---------------------------------------------- */
@@ -145,8 +149,8 @@ typedef struct lw_video_source lw_video_source_t;
 typedef struct lw_sender lw_sender_t;
 
 /* Creates a video source that frames are pushed into, rather than one driven
- * by a capture device. `label` may be NULL. Returns NULL on failure; the
- * handle owns one reference. */
+ * by a capture device. `label` is a diagnostic name and may be NULL. Returns
+ * NULL on failure; the handle owns one reference. */
 LW_C_API lw_video_source_t* lw_factory_create_video_source(
     lw_factory_t* factory, const char* label);
 
@@ -161,8 +165,14 @@ LW_C_API int lw_video_source_push_i420(lw_video_source_t* source, int width,
                                        int height, const uint8_t* data,
                                        size_t size);
 
-/* Creates a local video track fed by `source`. `id` may be NULL. Returns NULL
- * on failure; the handle owns one reference. */
+/* Creates a local video track fed by `source`.
+ *
+ * `id` becomes the track's id in the SDP and must be a non-empty string: an
+ * empty one produces an "a=msid:<stream> " line with nothing after the space,
+ * which the far side rejects when parsing the session description. That
+ * failure names the msid attribute and says nothing about the track, so it is
+ * refused here instead. Returns NULL on failure; the handle owns one
+ * reference. */
 LW_C_API lw_video_track_t* lw_factory_create_video_track(
     lw_factory_t* factory, lw_video_source_t* source, const char* id);
 
@@ -277,6 +287,82 @@ typedef void (*lw_stats_success_cb)(char* json, void* user);
 LW_C_API void lw_pc_get_stats(lw_pc_t* pc, lw_stats_success_cb on_success,
                               lw_sdp_failure_cb on_failure, void* user);
 
+/* ---- Data channel ----------------------------------------------------- */
+
+typedef struct lw_data_channel lw_data_channel_t;
+
+typedef enum lw_data_channel_state {
+  LW_DATA_CHANNEL_CONNECTING = 0,
+  LW_DATA_CHANNEL_OPEN = 1,
+  LW_DATA_CHANNEL_CLOSING = 2,
+  LW_DATA_CHANNEL_CLOSED = 3,
+} lw_data_channel_state;
+
+/* Channel configuration. Pass NULL to lw_pc_create_data_channel for the
+ * defaults: ordered and reliable, which is what most callers want.
+ *
+ * max_retransmit_time_ms and max_retransmits are the two ways to make a
+ * channel unreliable and are mutually exclusive; -1 leaves both unset. */
+typedef struct LwDataChannelInit {
+  uint32_t size;                  /* sizeof(LwDataChannelInit) */
+  int32_t ordered;                /* nonzero: deliver in order (default) */
+  int32_t max_retransmit_time_ms; /* -1 unset */
+  int32_t max_retransmits;        /* -1 unset */
+  int32_t negotiated;             /* nonzero: agreed out of band, use `id` */
+  int32_t id;                     /* channel id when negotiated */
+} LwDataChannelInit;
+
+/* Opens a data channel. `label` must be non-NULL. Returns NULL on failure; the
+ * handle owns one reference. */
+LW_C_API lw_data_channel_t* lw_pc_create_data_channel(
+    lw_pc_t* pc, const char* label, const LwDataChannelInit* init);
+
+/* Sends one message. `binary` distinguishes a binary message from text, which
+ * the far side is told. Returns 0 on success, negative on error.
+ *
+ * Success means the message was accepted for sending, not that it arrived.
+ * Sending faster than the transport drains grows the buffered amount without
+ * bound, so a caller that can outrun the link should watch
+ * lw_data_channel_buffered_amount. */
+LW_C_API int lw_data_channel_send(lw_data_channel_t* channel,
+                                  const uint8_t* data, uint32_t size,
+                                  int binary);
+
+/* Closes the channel. The handle stays valid until lw_release. */
+LW_C_API void lw_data_channel_close(lw_data_channel_t* channel);
+
+/* The channel's id, or negative before one is assigned or on error. */
+LW_C_API int lw_data_channel_id(lw_data_channel_t* channel);
+
+/* The channel's state as lw_data_channel_state, negative on error. */
+LW_C_API int lw_data_channel_get_state(lw_data_channel_t* channel);
+
+/* Bytes accepted for sending but not yet handed to the transport. */
+LW_C_API uint64_t lw_data_channel_buffered_amount(lw_data_channel_t* channel);
+
+/* The channel's label, owned by the caller (lw_string_free). NULL on error. */
+LW_C_API char* lw_data_channel_label(lw_data_channel_t* channel);
+
+/* Channel events, invoked on the signaling thread. Any field may be NULL. The
+ * struct is copied on registration; the function pointers and `user` must
+ * remain valid until the observer is removed. */
+typedef struct LwDataChannelObserver {
+  uint32_t size; /* sizeof(LwDataChannelObserver) */
+  void (*on_state)(int state, void* user);
+  /* One message. `data` is owned by the callback (lw_string_free) and is
+   * `size` bytes, with a NUL appended past them. */
+  void (*on_message)(char* data, uint32_t size, int binary, void* user);
+} LwDataChannelObserver;
+
+/* Registers `observer` for `channel`, replacing any previous one. Returns 0 on
+ * success, negative on error. Remove it before releasing the channel. */
+LW_C_API int lw_data_channel_set_observer(lw_data_channel_t* channel,
+                                          const LwDataChannelObserver* observer,
+                                          void* user);
+
+/* Removes and destroys the channel's observer, if any. */
+LW_C_API void lw_data_channel_remove_observer(lw_data_channel_t* channel);
+
 /* ---- Peer-connection events (observer) -------------------------------- */
 
 /* State values delivered to the observer callbacks below. These mirror the
@@ -336,6 +422,9 @@ typedef struct LwPcObserver {
    * lw_release; reach its receiver/video track via the transceiver
    * accessors. */
   void (*on_track)(lw_transceiver_t* transceiver, void* user);
+  /* The far side opened a data channel. `channel` is an OWNING handle: retire
+   * it with lw_release. Register an observer on it to receive messages. */
+  void (*on_data_channel)(lw_data_channel_t* channel, void* user);
 } LwPcObserver;
 
 /* Registers `observer` for `pc`, replacing any previous one. Returns 0 on
