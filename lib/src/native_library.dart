@@ -8,7 +8,7 @@ import 'ffi/lw_bindings.dart' show LwBindings;
 /// The ABI this package's generated bindings were produced from. Checked
 /// against the loaded library so a mismatched pair fails at load rather than
 /// at some later call with a shifted struct.
-const int kExpectedAbiVersion = 4;
+const int kExpectedAbiVersion = 5;
 
 /// Default shared-object name, resolved through the dynamic linker.
 const String kLibwebrtcName = 'libwebrtc.so';

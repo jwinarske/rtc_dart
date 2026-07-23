@@ -22,7 +22,7 @@ extern "C" {
 /* Bumped when the C ABI surface changes incompatibly. Checked at load time
  * between the loader and libwebrtc.so, and against the decoder's shared
  * tree-revision pin. */
-#define LW_ABI_VERSION 4
+#define LW_ABI_VERSION 5
 
 /* Max planes in a single dmabuf frame (e.g. NV12 = 2, I420 = 3). */
 #define LW_MAX_PLANES 4
@@ -66,6 +66,16 @@ typedef struct LwDmabufDescriptor {
                              * are unique/stable only WITHIN a generation
                              * (kernel reuses fd values after pool close).
                              * Consumers key import caches on this. */
+  uint32_t pool_size;       /* buffers in the producer's pool, or 0 if the
+                             * producer does not know. A consumer that holds
+                             * frames MUST bound what it holds against this:
+                             * hold too many and the producer starves waiting
+                             * for a buffer to decode into. Pools differ by an
+                             * order of magnitude -- a VAAPI surface pool runs
+                             * to dozens, a V4L2 CAPTURE pool is often reorder
+                             * depth plus pipeline plus one, so eight to ten --
+                             * which is why a consumer cannot pick a fixed
+                             * depth that suits both. Treat 0 as small. */
 } LwDmabufDescriptor;
 
 /* Invoked by the consumer exactly once when it is done with a taken frame

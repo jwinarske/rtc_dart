@@ -739,6 +739,19 @@ final class LwDmabufDescriptor extends ffi.Struct {
   /// Consumers key import caches on this.
   @ffi.Uint32()
   external int pool_generation;
+
+  /// buffers in the producer's pool, or 0 if the
+  /// producer does not know. A consumer that holds
+  /// frames MUST bound what it holds against this:
+  /// hold too many and the producer starves waiting
+  /// for a buffer to decode into. Pools differ by an
+  /// order of magnitude -- a VAAPI surface pool runs
+  /// to dozens, a V4L2 CAPTURE pool is often reorder
+  /// depth plus pipeline plus one, so eight to ten --
+  /// which is why a consumer cannot pick a fixed
+  /// depth that suits both. Treat 0 as small.
+  @ffi.Uint32()
+  external int pool_size;
 }
 
 /// The sink callback table. Registered with the sink registry and bound to a
@@ -1075,6 +1088,6 @@ final class LwPcObserver extends ffi.Struct {
               ffi.Pointer<ffi.Void> user)>> on_track;
 }
 
-const int LW_ABI_VERSION = 4;
+const int LW_ABI_VERSION = 5;
 
 const int LW_MAX_PLANES = 4;
