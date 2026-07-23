@@ -133,6 +133,24 @@ void main() {
     expect(stats.framesCpu + stats.framesDropped,
         greaterThanOrEqualTo(received.length));
     expect(stats.isZeroCopy, isFalse);
+
+    // Transport statistics, from the side with an inbound stream to report on.
+    final reports =
+        await callee.getStats().timeout(const Duration(seconds: 20));
+    expect(reports, isNotEmpty);
+    for (final report in reports) {
+      expect(report['id'], isA<String>());
+      expect(report['type'], isA<String>());
+      expect(report['timestamp'], isNotNull);
+    }
+    final byType = reports.map((r) => r['type']).toSet();
+    expect(byType, contains('inbound-rtp'));
+    expect(byType, contains('candidate-pair'));
+
+    // The transport's own frame count should agree with what the frame stream
+    // saw -- two independent views of the same run.
+    final inbound = reports.firstWhere((r) => r['type'] == 'inbound-rtp');
+    expect(inbound['framesDecoded'], greaterThanOrEqualTo(received.length));
   }, timeout: const Timeout(Duration(seconds: 120)));
 
   test('counters start at zero on a track that has decoded nothing', () {
@@ -147,6 +165,34 @@ void main() {
     expect(stats.framesDelivered, 0);
     expect(stats.lastFrameAt, isNull);
     expect(stats.isZeroCopy, isFalse); // nothing delivered yet
+  });
+
+  test('a track with no id still negotiates', () async {
+    // An empty track id yields an "a=msid:<stream> " line the far side cannot
+    // parse, so a generated id has to stand in rather than an empty string.
+    final factory = RtcFactory.create();
+    addTearDown(factory.dispose);
+    final caller = factory.createPeerConnection();
+    addTearDown(caller.dispose);
+
+    final source = factory.createVideoSource();
+    addTearDown(source.dispose);
+    final track = factory.createVideoTrack(source);
+    addTearDown(track.dispose);
+    addTearDown(caller.addTrack(track, streamIds: ['s']).dispose);
+
+    final offer = await caller.createOffer();
+    expect(offer.sdp, contains('a=msid:'));
+    // This is what rejects an empty id, so it is the assertion that matters.
+    await caller.setLocalDescription(offer);
+  }, timeout: const Timeout(Duration(seconds: 30)));
+
+  test('an explicitly empty track id is refused', () {
+    final factory = RtcFactory.create();
+    addTearDown(factory.dispose);
+    final source = factory.createVideoSource();
+    addTearDown(source.dispose);
+    expect(() => factory.createVideoTrack(source, id: ''), throwsArgumentError);
   });
 
   test('a frame whose size contradicts its dimensions is refused', () {
