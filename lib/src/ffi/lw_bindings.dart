@@ -451,6 +451,28 @@ class LwBindings {
   late final _lw_video_track_enabled = _lw_video_track_enabledPtr
       .asFunction<int Function(ffi.Pointer<lw_video_track_t>)>();
 
+  /// Fills `out` with the track's counters. `out->size` must be set by the caller
+  /// to sizeof(LwVideoTrackStats) before the call. Returns 0 on success, negative
+  /// on error (null or non-video track, missing or mismatched size).
+  int lw_video_track_get_stats(
+    ffi.Pointer<lw_video_track_t> track,
+    ffi.Pointer<LwVideoTrackStats> out,
+  ) {
+    return _lw_video_track_get_stats(
+      track,
+      out,
+    );
+  }
+
+  late final _lw_video_track_get_statsPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<lw_video_track_t>,
+              ffi.Pointer<LwVideoTrackStats>)>>('lw_video_track_get_stats');
+  late final _lw_video_track_get_stats =
+      _lw_video_track_get_statsPtr.asFunction<
+          int Function(
+              ffi.Pointer<lw_video_track_t>, ffi.Pointer<LwVideoTrackStats>)>();
+
   /// Creates an offer/answer. On success `on_success` receives the SDP and its
   /// type ("offer"/"answer").
   void lw_pc_create_offer(
@@ -834,6 +856,55 @@ final class lw_sender extends ffi.Opaque {}
 typedef lw_video_source_t = lw_video_source;
 typedef lw_sender_t = lw_sender;
 
+/// Per-track frame counters, cheap enough to read every frame: they are plain
+/// counters, read without taking the lock the delivery path holds.
+///
+/// These describe the local pipeline -- what the decoder produced and where it
+/// went. They say nothing about the network; RTP, RTCP, ICE and DTLS statistics
+/// are gathered asynchronously by the library and are a separate request.
+///
+/// Rates are deliberately absent. Two samples and the elapsed time between them
+/// give a rate over whatever window the caller wants, where a rate computed
+/// here would impose one.
+final class LwVideoTrackStats extends ffi.Struct {
+  /// sizeof(LwVideoTrackStats)
+  @ffi.Uint32()
+  external int size;
+
+  @ffi.Uint32()
+  external int reserved;
+
+  /// Every decoded frame the track delivered, whatever path it then took.
+  @ffi.Uint64()
+  external int frames_delivered;
+
+  /// Delivered as a dmabuf to a bound sink, which the sink took.
+  @ffi.Uint64()
+  external int frames_native;
+
+  /// Delivered through the software path: no native buffer, so the frame was
+  /// converted. Nonzero means the zero-copy path is not in use.
+  @ffi.Uint64()
+  external int frames_cpu;
+
+  /// Native frames that reached no sink: none bound, the sink declined, or the
+  /// buffer was some other implementation's native type.
+  @ffi.Uint64()
+  external int frames_dropped;
+
+  /// Geometry of the most recent frame, or 0 before the first.
+  @ffi.Uint32()
+  external int last_width;
+
+  @ffi.Uint32()
+  external int last_height;
+
+  /// CLOCK_MONOTONIC microseconds at the most recent frame, or 0 before the
+  /// first. Paired with frames_delivered across two calls, this gives a rate.
+  @ffi.Int64()
+  external int last_frame_us;
+}
+
 /// Completion callbacks for the async SDP operations below. They are invoked on
 /// the signaling thread. `user` is the opaque cookie passed to the originating
 /// call.
@@ -1004,6 +1075,6 @@ final class LwPcObserver extends ffi.Struct {
               ffi.Pointer<ffi.Void> user)>> on_track;
 }
 
-const int LW_ABI_VERSION = 3;
+const int LW_ABI_VERSION = 4;
 
 const int LW_MAX_PLANES = 4;

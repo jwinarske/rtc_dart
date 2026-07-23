@@ -51,7 +51,8 @@ export 'src/events.dart'
         RtcIceGatheringState,
         RtcPeerConnectionState,
         RtcSessionDescription,
-        RtcSignalingState;
+        RtcSignalingState,
+        RtcVideoStats;
 export 'src/objects.dart'
     show
         MediaKind,

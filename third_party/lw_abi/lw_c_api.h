@@ -181,6 +181,45 @@ LW_C_API int lw_video_track_set_enabled(lw_video_track_t* track, int enabled);
 /* Whether a track is enabled. Returns 1, 0, or negative on error. */
 LW_C_API int lw_video_track_enabled(lw_video_track_t* track);
 
+/* ---- Pipeline counters ------------------------------------------------ */
+
+/* Per-track frame counters, cheap enough to read every frame: they are plain
+ * counters, read without taking the lock the delivery path holds.
+ *
+ * These describe the local pipeline -- what the decoder produced and where it
+ * went. They say nothing about the network; RTP, RTCP, ICE and DTLS statistics
+ * are gathered asynchronously by the library and are a separate request.
+ *
+ * Rates are deliberately absent. Two samples and the elapsed time between them
+ * give a rate over whatever window the caller wants, where a rate computed
+ * here would impose one. */
+typedef struct LwVideoTrackStats {
+  uint32_t size; /* sizeof(LwVideoTrackStats) */
+  uint32_t reserved;
+  /* Every decoded frame the track delivered, whatever path it then took. */
+  uint64_t frames_delivered;
+  /* Delivered as a dmabuf to a bound sink, which the sink took. */
+  uint64_t frames_native;
+  /* Delivered through the software path: no native buffer, so the frame was
+   * converted. Nonzero means the zero-copy path is not in use. */
+  uint64_t frames_cpu;
+  /* Native frames that reached no sink: none bound, the sink declined, or the
+   * buffer was some other implementation's native type. */
+  uint64_t frames_dropped;
+  /* Geometry of the most recent frame, or 0 before the first. */
+  uint32_t last_width;
+  uint32_t last_height;
+  /* CLOCK_MONOTONIC microseconds at the most recent frame, or 0 before the
+   * first. Paired with frames_delivered across two calls, this gives a rate. */
+  int64_t last_frame_us;
+} LwVideoTrackStats;
+
+/* Fills `out` with the track's counters. `out->size` must be set by the caller
+ * to sizeof(LwVideoTrackStats) before the call. Returns 0 on success, negative
+ * on error (null or non-video track, missing or mismatched size). */
+LW_C_API int lw_video_track_get_stats(lw_video_track_t* track,
+                                      LwVideoTrackStats* out);
+
 /* ---- SDP negotiation -------------------------------------------------- */
 
 /* Completion callbacks for the async SDP operations below. They are invoked on
