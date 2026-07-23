@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'dart:typed_data';
 
@@ -12,6 +13,10 @@ import 'ffi/lw_bindings.dart' as lw;
 import 'handle.dart';
 import 'native_library.dart';
 import 'video_sink.dart';
+
+/// Distinguishes the ids this package generates when a caller supplies none.
+int _idCounter = 0;
+String _generatedId(String prefix) => '$prefix-${++_idCounter}';
 
 /// Reads a string a callback took ownership of, and retires it.
 String _takeString(ffi.Pointer<ffi.Char> s) {
@@ -123,7 +128,7 @@ class RtcFactory extends RtcHandle {
   /// This is the send side's entry point: a source is fed by
   /// [RtcVideoSource.pushI420] rather than by a capture device.
   RtcVideoSource createVideoSource({String? label}) {
-    final name = (label ?? '').toNativeUtf8();
+    final name = (label ?? _generatedId('source')).toNativeUtf8();
     try {
       final created = library.bindings.lw_factory_create_video_source(
           pointer.cast<lw.lw_factory_t>(), name.cast());
@@ -137,8 +142,15 @@ class RtcFactory extends RtcHandle {
   }
 
   /// Creates a local video track fed by [source].
+  ///
+  /// [id] becomes the track's id in the SDP. One is generated when none is
+  /// given: an empty id produces an `a=msid` line the far side cannot parse,
+  /// so this never passes one through.
   RtcVideoTrack createVideoTrack(RtcVideoSource source, {String? id}) {
-    final trackId = (id ?? '').toNativeUtf8();
+    if (id != null && id.isEmpty) {
+      throw ArgumentError.value(id, 'id', 'must not be empty');
+    }
+    final trackId = (id ?? _generatedId('track')).toNativeUtf8();
     try {
       final created = library.bindings.lw_factory_create_video_track(
         pointer.cast<lw.lw_factory_t>(),
@@ -224,6 +236,56 @@ class RtcPeerConnection extends RtcHandle {
   /// Applies [description] as the remote session description.
   Future<void> setRemoteDescription(RtcSessionDescription description) =>
       _setSdp(library.bindings.lw_pc_set_remote_description, description);
+
+  /// Transport statistics: RTP, RTCP, ICE and DTLS.
+  ///
+  /// One entry per report, each carrying its own `id`, `type` and `timestamp`
+  /// alongside its members. Filter by `type` for the ones you want --
+  /// `inbound-rtp`, `candidate-pair`, `transport` and so on.
+  ///
+  /// Poll these about a second apart. They are gathered asynchronously and
+  /// serialized on the signaling thread; [RtcVideoTrack.stats] is the one to
+  /// read at frame rate.
+  Future<List<Map<String, Object?>>> getStats() {
+    final completer = Completer<List<Map<String, Object?>>>();
+    late final _SdpRequest request;
+
+    final success = ffi.NativeCallable<lw.lw_stats_success_cbFunction>.listener(
+      (ffi.Pointer<ffi.Char> json, ffi.Pointer<ffi.Void> _) {
+        final document = _takeString(json);
+        if (!request.settle()) {
+          return;
+        }
+        try {
+          final decoded = jsonDecode(document) as List<Object?>;
+          completer.complete(decoded
+              .whereType<Map<String, Object?>>()
+              .toList(growable: false));
+        } on FormatException catch (e) {
+          completer.completeError(
+              RtcNativeException('the statistics document did not parse: $e'));
+        }
+      },
+    );
+    final failure = ffi.NativeCallable<lw.lw_sdp_failure_cbFunction>.listener(
+      (ffi.Pointer<ffi.Char> error, ffi.Pointer<ffi.Void> _) {
+        final message = _takeString(error);
+        if (request.settle()) {
+          completer.completeError(RtcNativeException(message));
+        }
+      },
+    );
+    request = _SdpRequest(() {
+      _requests.remove(request);
+      success.close();
+      failure.close();
+    }, completer.completeError);
+    _requests.add(request);
+
+    library.bindings.lw_pc_get_stats(pointer.cast<lw.lw_pc_t>(),
+        success.nativeFunction, failure.nativeFunction, ffi.nullptr);
+    return completer.future;
+  }
 
   /// Adds a candidate received from the far side.
   ///

@@ -620,6 +620,28 @@ class LwBindings {
       void Function(ffi.Pointer<lw_pc_t>, ffi.Pointer<ffi.Char>, int,
           ffi.Pointer<ffi.Char>)>();
 
+  void lw_pc_get_stats(
+    ffi.Pointer<lw_pc_t> pc,
+    lw_stats_success_cb on_success,
+    lw_sdp_failure_cb on_failure,
+    ffi.Pointer<ffi.Void> user,
+  ) {
+    return _lw_pc_get_stats(
+      pc,
+      on_success,
+      on_failure,
+      user,
+    );
+  }
+
+  late final _lw_pc_get_statsPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(ffi.Pointer<lw_pc_t>, lw_stats_success_cb,
+              lw_sdp_failure_cb, ffi.Pointer<ffi.Void>)>>('lw_pc_get_stats');
+  late final _lw_pc_get_stats = _lw_pc_get_statsPtr.asFunction<
+      void Function(ffi.Pointer<lw_pc_t>, lw_stats_success_cb,
+          lw_sdp_failure_cb, ffi.Pointer<ffi.Void>)>();
+
   /// Registers `observer` for `pc`, replacing any previous one. Returns 0 on
   /// success, negative on error. Remove it (or before releasing the pc) with
   /// lw_pc_remove_observer.
@@ -945,6 +967,28 @@ typedef lw_set_sdp_success_cbFunction = ffi.Void Function(
 typedef Dartlw_set_sdp_success_cbFunction = void Function(
     ffi.Pointer<ffi.Void> user);
 
+/// Statistics the library gathers from the transport: RTP, RTCP, ICE and DTLS.
+///
+/// Delivered as a JSON array, one object per report, each carrying its own id,
+/// type and timestamp along with its members -- the shape the library already
+/// produces, rather than a C mirror of its sixteen member types.
+///
+/// Asynchronous because that is how the library collects them. A synchronous
+/// call would either block one of its threads or hand back something stale.
+///
+/// Poll these at human rates, a second or so apart. The per-frame pipeline
+/// counters above are the ones to read at frame rate; these allocate and
+/// serialize on the signaling thread.
+///
+/// The document is owned by the callback, as the SDP payloads are, and is
+/// retired with lw_string_free.
+typedef lw_stats_success_cb
+    = ffi.Pointer<ffi.NativeFunction<lw_stats_success_cbFunction>>;
+typedef lw_stats_success_cbFunction = ffi.Void Function(
+    ffi.Pointer<ffi.Char> json, ffi.Pointer<ffi.Void> user);
+typedef Dartlw_stats_success_cbFunction = void Function(
+    ffi.Pointer<ffi.Char> json, ffi.Pointer<ffi.Void> user);
+
 /// State values delivered to the observer callbacks below. These mirror the
 /// library's own RTC*State enums, which the shim static-asserts against, so a
 /// consumer needs only this header.
@@ -1088,6 +1132,6 @@ final class LwPcObserver extends ffi.Struct {
               ffi.Pointer<ffi.Void> user)>> on_track;
 }
 
-const int LW_ABI_VERSION = 5;
+const int LW_ABI_VERSION = 6;
 
 const int LW_MAX_PLANES = 4;

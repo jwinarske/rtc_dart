@@ -257,6 +257,26 @@ LW_C_API void lw_pc_set_remote_description(lw_pc_t* pc, const char* sdp,
 LW_C_API void lw_pc_add_ice_candidate(lw_pc_t* pc, const char* mid,
                                       int mline_index, const char* candidate);
 
+/* Statistics the library gathers from the transport: RTP, RTCP, ICE and DTLS.
+ *
+ * Delivered as a JSON array, one object per report, each carrying its own id,
+ * type and timestamp along with its members -- the shape the library already
+ * produces, rather than a C mirror of its sixteen member types.
+ *
+ * Asynchronous because that is how the library collects them. A synchronous
+ * call would either block one of its threads or hand back something stale.
+ *
+ * Poll these at human rates, a second or so apart. The per-frame pipeline
+ * counters above are the ones to read at frame rate; these allocate and
+ * serialize on the signaling thread.
+ *
+ * The document is owned by the callback, as the SDP payloads are, and is
+ * retired with lw_string_free. */
+typedef void (*lw_stats_success_cb)(char* json, void* user);
+
+LW_C_API void lw_pc_get_stats(lw_pc_t* pc, lw_stats_success_cb on_success,
+                              lw_sdp_failure_cb on_failure, void* user);
+
 /* ---- Peer-connection events (observer) -------------------------------- */
 
 /* State values delivered to the observer callbacks below. These mirror the
