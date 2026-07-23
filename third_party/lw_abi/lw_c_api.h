@@ -88,6 +88,33 @@ LW_C_API lw_video_sink_token lw_video_sink_register(const LwVideoSinkV1* sink,
  * not unbind: unbind the track first (lw_video_track_unbind_sink). */
 LW_C_API int lw_video_sink_unregister(lw_video_sink_token token);
 
+/* Finds a live video track by the id webrtc assigned it, or NULL if no track
+ * has that id. The handle owns one reference (retire it with lw_release) and
+ * works with every lw_video_track_* call below.
+ *
+ * This is for a consumer that did not create the track. Where a separate
+ * plugin owns the peer connection -- flutter_webrtc, say -- it already
+ * surfaces the track id to its own API, and that id resolves here, so a sink
+ * can be bound without either side handing over pointers.
+ *
+ * Ids are not guaranteed unique among live tracks. A remote track inherits the
+ * sender's id from the SDP, so a loopback inside one process has a local and a
+ * remote track under the same id, and more than one wrapper of a track may
+ * exist at once. Each wrapper carries its own sink binding and receives frames
+ * independently, so binding through whichever this returns works; but which
+ * one it returns is unspecified. Where that distinction matters, reach the
+ * track through the receiver instead.
+ *
+ * The returned handle does NOT keep the factory that produced the track alive,
+ * because that factory belongs to whoever created it. Release the handle
+ * before the owning plugin tears its factory down; holding it past that is the
+ * one ordering this ABI does not make safe for you. */
+LW_C_API lw_video_track_t* lw_video_track_find(const char* track_id);
+
+/* The id webrtc assigned this track -- the same string lw_video_track_find
+ * takes. Owned by the caller (lw_string_free); NULL on error. */
+LW_C_API char* lw_video_track_id(lw_video_track_t* track);
+
 /* Binds a registered sink to a video track; native frames on the track are
  * then delivered to the sink. Returns 0 on success, negative on error
  * (null/unknown track, unknown token). */
