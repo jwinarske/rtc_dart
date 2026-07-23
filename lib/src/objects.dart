@@ -925,6 +925,50 @@ class RtcReceiver extends RtcHandle {
 class RtcVideoTrack extends RtcHandle {
   RtcVideoTrack._(super.pointer, super.library);
 
+  /// Finds a live video track by the id webrtc assigned it, or null if no
+  /// track has that id.
+  ///
+  /// For reaching a track this package did not create — where another plugin
+  /// owns the peer connection and surfaces the id, nothing but that string has
+  /// to cross between them.
+  ///
+  /// Two caveats, both from the C ABI:
+  ///
+  /// The returned track does not keep the factory that produced it alive, so
+  /// dispose it before that plugin tears its factory down.
+  ///
+  /// Ids are not unique among live tracks: a remote track inherits the
+  /// sender's id, so a loopback in one process has two under the same id, and
+  /// several wrappers of one track can coexist. Each carries its own sink
+  /// binding and receives frames independently, so binding through whichever
+  /// comes back works — but which one that is, is unspecified.
+  static RtcVideoTrack? findById(String id) {
+    if (id.isEmpty) {
+      return null;
+    }
+    final library = NativeLibrary.instance;
+    final name = id.toNativeUtf8();
+    try {
+      final found = library.bindings.lw_video_track_find(name.cast());
+      if (found == ffi.nullptr) {
+        return null;
+      }
+      return RtcVideoTrack._(found.cast(), library);
+    } finally {
+      pkg_ffi.malloc.free(name);
+    }
+  }
+
+  /// The id webrtc assigned this track — the string [findById] takes.
+  String get id {
+    final value =
+        library.bindings.lw_video_track_id(pointer.cast<lw.lw_video_track_t>());
+    if (value == ffi.nullptr) {
+      throw RtcNativeException('lw_video_track_id failed');
+    }
+    return _takeString(value);
+  }
+
   VideoSinkToken? _bound;
   StreamController<RtcFrameInfo>? _frames;
   ffi.NativeCallable<lw.lw_frame_cbFunction>? _frameCb;

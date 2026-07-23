@@ -167,6 +167,59 @@ class LwBindings {
   late final _lw_video_sink_unregister =
       _lw_video_sink_unregisterPtr.asFunction<int Function(int)>();
 
+  /// Finds a live video track by the id webrtc assigned it, or NULL if no track
+  /// has that id. The handle owns one reference (retire it with lw_release) and
+  /// works with every lw_video_track_* call below.
+  ///
+  /// This is for a consumer that did not create the track. Where a separate
+  /// plugin owns the peer connection -- flutter_webrtc, say -- it already
+  /// surfaces the track id to its own API, and that id resolves here, so a sink
+  /// can be bound without either side handing over pointers.
+  ///
+  /// Ids are not guaranteed unique among live tracks. A remote track inherits the
+  /// sender's id from the SDP, so a loopback inside one process has a local and a
+  /// remote track under the same id, and more than one wrapper of a track may
+  /// exist at once. Each wrapper carries its own sink binding and receives frames
+  /// independently, so binding through whichever this returns works; but which
+  /// one it returns is unspecified. Where that distinction matters, reach the
+  /// track through the receiver instead.
+  ///
+  /// The returned handle does NOT keep the factory that produced the track alive,
+  /// because that factory belongs to whoever created it. Release the handle
+  /// before the owning plugin tears its factory down; holding it past that is the
+  /// one ordering this ABI does not make safe for you.
+  ffi.Pointer<lw_video_track_t> lw_video_track_find(
+    ffi.Pointer<ffi.Char> track_id,
+  ) {
+    return _lw_video_track_find(
+      track_id,
+    );
+  }
+
+  late final _lw_video_track_findPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Pointer<lw_video_track_t> Function(
+              ffi.Pointer<ffi.Char>)>>('lw_video_track_find');
+  late final _lw_video_track_find = _lw_video_track_findPtr.asFunction<
+      ffi.Pointer<lw_video_track_t> Function(ffi.Pointer<ffi.Char>)>();
+
+  /// The id webrtc assigned this track -- the same string lw_video_track_find
+  /// takes. Owned by the caller (lw_string_free); NULL on error.
+  ffi.Pointer<ffi.Char> lw_video_track_id(
+    ffi.Pointer<lw_video_track_t> track,
+  ) {
+    return _lw_video_track_id(
+      track,
+    );
+  }
+
+  late final _lw_video_track_idPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(
+              ffi.Pointer<lw_video_track_t>)>>('lw_video_track_id');
+  late final _lw_video_track_id = _lw_video_track_idPtr.asFunction<
+      ffi.Pointer<ffi.Char> Function(ffi.Pointer<lw_video_track_t>)>();
+
   /// Binds a registered sink to a video track; native frames on the track are
   /// then delivered to the sink. Returns 0 on success, negative on error
   /// (null/unknown track, unknown token).
@@ -1403,6 +1456,6 @@ final class LwPcObserver extends ffi.Struct {
               ffi.Pointer<ffi.Void> user)>> on_data_channel;
 }
 
-const int LW_ABI_VERSION = 7;
+const int LW_ABI_VERSION = 8;
 
 const int LW_MAX_PLANES = 4;

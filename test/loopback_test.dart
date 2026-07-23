@@ -195,6 +195,55 @@ void main() {
     expect(() => factory.createVideoTrack(source, id: ''), throwsArgumentError);
   });
 
+  test('a track is reachable by the id webrtc gave it', () {
+    final factory = RtcFactory.create();
+    addTearDown(factory.dispose);
+    final source = factory.createVideoSource();
+    addTearDown(source.dispose);
+    final track = factory.createVideoTrack(source, id: 'find-me');
+    addTearDown(track.dispose);
+
+    expect(track.id, 'find-me');
+
+    // Reached without ever holding the original: what another plugin owning
+    // the peer connection does with an id it surfaced.
+    final found = RtcVideoTrack.findById('find-me');
+    expect(found, isNotNull);
+    addTearDown(found!.dispose);
+    expect(found.id, 'find-me');
+    // A distinct handle, not the same object.
+    expect(identical(found, track), isFalse);
+
+    expect(RtcVideoTrack.findById('nothing-has-this-id'), isNull);
+    expect(RtcVideoTrack.findById(''), isNull);
+  });
+
+  test('an id stays findable while any handle to it lives', () {
+    final factory = RtcFactory.create();
+    final source = factory.createVideoSource();
+    final track = factory.createVideoTrack(source, id: 'transient');
+
+    // A lookup hands back its own handle to the same track, so the id is now
+    // carried by two.
+    final found = RtcVideoTrack.findById('transient');
+    expect(found, isNotNull);
+
+    found!.dispose();
+    // Disposing the looked-up handle must not unpublish an id the original
+    // still holds.
+    final again = RtcVideoTrack.findById('transient');
+    expect(again, isNotNull);
+    again!.dispose();
+
+    track.dispose();
+    // Gone once the last handle to it does.
+    expect(RtcVideoTrack.findById('transient'), isNull);
+
+    // Disposed in order: nothing may outlive the factory that made it.
+    source.dispose();
+    factory.dispose();
+  });
+
   test('a frame whose size contradicts its dimensions is refused', () {
     final factory = RtcFactory.create();
     addTearDown(factory.dispose);
