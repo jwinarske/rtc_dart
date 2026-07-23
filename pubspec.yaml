@@ -24,6 +24,6 @@ dev_dependencies:
   lints: ^4.0.0
   test: ^1.25.0
 
-# Native-assets: hook/build.dart fetches/pins prebuilt libwebrtc.so per target
-# triple from the OCI artifact store, exposed as a code asset resolved by
-# @Native() lookups. Source-build path is used under Yocto.
+# The library is opened by path today: Rtc.initialize(libraryPath: ...).
+# Native assets -- a hook/build.dart fetching a prebuilt libwebrtc.so per
+# target triple as a code asset -- are not implemented yet.

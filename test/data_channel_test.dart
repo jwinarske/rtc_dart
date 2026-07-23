@@ -105,11 +105,17 @@ void main() {
 
     final channel = pc.createDataChannel('doomed');
     addTearDown(channel.dispose);
+    // A fresh channel reports connecting, not whatever was in the field.
+    expect(channel.state, RtcDataChannelState.connecting);
+
     channel.close();
     // Closing without a peer means it never opens; waiting has to fail rather
     // than hang.
     await expectLater(channel.whenOpen.timeout(const Duration(seconds: 10)),
         throwsA(isA<RtcNativeException>()));
+    // And the close has to be visible afterwards, not leave it reporting the
+    // state it had before.
+    expect(channel.state, RtcDataChannelState.closed);
   }, timeout: const Timeout(Duration(seconds: 30)));
 
   test('refuses a label or retransmit policy that cannot work', () {
