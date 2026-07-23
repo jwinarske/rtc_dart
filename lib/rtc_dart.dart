@@ -45,6 +45,8 @@ export 'src/native_library.dart' show RtcNativeException;
 export 'src/handle.dart' show RtcHandle;
 export 'src/events.dart'
     show
+        RtcDataChannelMessage,
+        RtcDataChannelState,
         RtcFrameInfo,
         RtcIceCandidate,
         RtcIceConnectionState,
@@ -58,6 +60,7 @@ export 'src/objects.dart'
         MediaKind,
         Rtc,
         RtcFactory,
+        RtcDataChannel,
         RtcPeerConnection,
         RtcReceiver,
         RtcRtpSender,

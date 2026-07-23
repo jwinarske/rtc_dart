@@ -110,9 +110,13 @@ class LwBindings {
   late final _lw_release =
       _lw_releasePtr.asFunction<void Function(ffi.Pointer<ffi.Void>)>();
 
-  /// Frees a string delivered to a callback below. Every `char*` a callback
+  /// Frees a payload delivered to a callback below. Every `char*` a callback
   /// receives is owned by the callback, which passes it here once done. NULL is
   /// ignored.
+  ///
+  /// Data channel messages come this way too. They are length-delimited, since a
+  /// binary message may contain zero bytes, but a NUL is appended past the length
+  /// so a text message can also be read as a C string.
   void lw_string_free(
     ffi.Pointer<ffi.Char> s,
   ) {
@@ -307,8 +311,8 @@ class LwBindings {
       ffi.Pointer<lw_video_track_t> Function(ffi.Pointer<lw_receiver_t>)>();
 
   /// Creates a video source that frames are pushed into, rather than one driven
-  /// by a capture device. `label` may be NULL. Returns NULL on failure; the
-  /// handle owns one reference.
+  /// by a capture device. `label` is a diagnostic name and may be NULL. Returns
+  /// NULL on failure; the handle owns one reference.
   ffi.Pointer<lw_video_source_t> lw_factory_create_video_source(
     ffi.Pointer<lw_factory_t> factory1,
     ffi.Pointer<ffi.Char> label,
@@ -360,8 +364,14 @@ class LwBindings {
           int Function(ffi.Pointer<lw_video_source_t>, int, int,
               ffi.Pointer<ffi.Uint8>, int)>();
 
-  /// Creates a local video track fed by `source`. `id` may be NULL. Returns NULL
-  /// on failure; the handle owns one reference.
+  /// Creates a local video track fed by `source`.
+  ///
+  /// `id` becomes the track's id in the SDP and must be a non-empty string: an
+  /// empty one produces an "a=msid:<stream> " line with nothing after the space,
+  /// which the far side rejects when parsing the session description. That
+  /// failure names the msid attribute and says nothing about the track, so it is
+  /// refused here instead. Returns NULL on failure; the handle owns one
+  /// reference.
   ffi.Pointer<lw_video_track_t> lw_factory_create_video_track(
     ffi.Pointer<lw_factory_t> factory1,
     ffi.Pointer<lw_video_source_t> source,
@@ -641,6 +651,184 @@ class LwBindings {
   late final _lw_pc_get_stats = _lw_pc_get_statsPtr.asFunction<
       void Function(ffi.Pointer<lw_pc_t>, lw_stats_success_cb,
           lw_sdp_failure_cb, ffi.Pointer<ffi.Void>)>();
+
+  /// Opens a data channel. `label` must be non-NULL. Returns NULL on failure; the
+  /// handle owns one reference.
+  ffi.Pointer<lw_data_channel_t> lw_pc_create_data_channel(
+    ffi.Pointer<lw_pc_t> pc,
+    ffi.Pointer<ffi.Char> label,
+    ffi.Pointer<LwDataChannelInit> init,
+  ) {
+    return _lw_pc_create_data_channel(
+      pc,
+      label,
+      init,
+    );
+  }
+
+  late final _lw_pc_create_data_channelPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Pointer<lw_data_channel_t> Function(
+              ffi.Pointer<lw_pc_t>,
+              ffi.Pointer<ffi.Char>,
+              ffi.Pointer<LwDataChannelInit>)>>('lw_pc_create_data_channel');
+  late final _lw_pc_create_data_channel =
+      _lw_pc_create_data_channelPtr.asFunction<
+          ffi.Pointer<lw_data_channel_t> Function(ffi.Pointer<lw_pc_t>,
+              ffi.Pointer<ffi.Char>, ffi.Pointer<LwDataChannelInit>)>();
+
+  /// Sends one message. `binary` distinguishes a binary message from text, which
+  /// the far side is told. Returns 0 on success, negative on error.
+  ///
+  /// Success means the message was accepted for sending, not that it arrived.
+  /// Sending faster than the transport drains grows the buffered amount without
+  /// bound, so a caller that can outrun the link should watch
+  /// lw_data_channel_buffered_amount.
+  int lw_data_channel_send(
+    ffi.Pointer<lw_data_channel_t> channel,
+    ffi.Pointer<ffi.Uint8> data,
+    int size,
+    int binary,
+  ) {
+    return _lw_data_channel_send(
+      channel,
+      data,
+      size,
+      binary,
+    );
+  }
+
+  late final _lw_data_channel_sendPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int Function(
+              ffi.Pointer<lw_data_channel_t>,
+              ffi.Pointer<ffi.Uint8>,
+              ffi.Uint32,
+              ffi.Int)>>('lw_data_channel_send');
+  late final _lw_data_channel_send = _lw_data_channel_sendPtr.asFunction<
+      int Function(
+          ffi.Pointer<lw_data_channel_t>, ffi.Pointer<ffi.Uint8>, int, int)>();
+
+  /// Closes the channel. The handle stays valid until lw_release.
+  void lw_data_channel_close(
+    ffi.Pointer<lw_data_channel_t> channel,
+  ) {
+    return _lw_data_channel_close(
+      channel,
+    );
+  }
+
+  late final _lw_data_channel_closePtr = _lookup<
+          ffi
+          .NativeFunction<ffi.Void Function(ffi.Pointer<lw_data_channel_t>)>>(
+      'lw_data_channel_close');
+  late final _lw_data_channel_close = _lw_data_channel_closePtr
+      .asFunction<void Function(ffi.Pointer<lw_data_channel_t>)>();
+
+  /// The channel's id, or negative before one is assigned or on error.
+  int lw_data_channel_id(
+    ffi.Pointer<lw_data_channel_t> channel,
+  ) {
+    return _lw_data_channel_id(
+      channel,
+    );
+  }
+
+  late final _lw_data_channel_idPtr = _lookup<
+          ffi.NativeFunction<ffi.Int Function(ffi.Pointer<lw_data_channel_t>)>>(
+      'lw_data_channel_id');
+  late final _lw_data_channel_id = _lw_data_channel_idPtr
+      .asFunction<int Function(ffi.Pointer<lw_data_channel_t>)>();
+
+  /// The channel's state as lw_data_channel_state, negative on error.
+  int lw_data_channel_get_state(
+    ffi.Pointer<lw_data_channel_t> channel,
+  ) {
+    return _lw_data_channel_get_state(
+      channel,
+    );
+  }
+
+  late final _lw_data_channel_get_statePtr = _lookup<
+          ffi.NativeFunction<ffi.Int Function(ffi.Pointer<lw_data_channel_t>)>>(
+      'lw_data_channel_get_state');
+  late final _lw_data_channel_get_state = _lw_data_channel_get_statePtr
+      .asFunction<int Function(ffi.Pointer<lw_data_channel_t>)>();
+
+  /// Bytes accepted for sending but not yet handed to the transport.
+  int lw_data_channel_buffered_amount(
+    ffi.Pointer<lw_data_channel_t> channel,
+  ) {
+    return _lw_data_channel_buffered_amount(
+      channel,
+    );
+  }
+
+  late final _lw_data_channel_buffered_amountPtr = _lookup<
+          ffi
+          .NativeFunction<ffi.Uint64 Function(ffi.Pointer<lw_data_channel_t>)>>(
+      'lw_data_channel_buffered_amount');
+  late final _lw_data_channel_buffered_amount =
+      _lw_data_channel_buffered_amountPtr
+          .asFunction<int Function(ffi.Pointer<lw_data_channel_t>)>();
+
+  /// The channel's label, owned by the caller (lw_string_free). NULL on error.
+  ffi.Pointer<ffi.Char> lw_data_channel_label(
+    ffi.Pointer<lw_data_channel_t> channel,
+  ) {
+    return _lw_data_channel_label(
+      channel,
+    );
+  }
+
+  late final _lw_data_channel_labelPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(
+              ffi.Pointer<lw_data_channel_t>)>>('lw_data_channel_label');
+  late final _lw_data_channel_label = _lw_data_channel_labelPtr.asFunction<
+      ffi.Pointer<ffi.Char> Function(ffi.Pointer<lw_data_channel_t>)>();
+
+  /// Registers `observer` for `channel`, replacing any previous one. Returns 0 on
+  /// success, negative on error. Remove it before releasing the channel.
+  int lw_data_channel_set_observer(
+    ffi.Pointer<lw_data_channel_t> channel,
+    ffi.Pointer<LwDataChannelObserver> observer,
+    ffi.Pointer<ffi.Void> user,
+  ) {
+    return _lw_data_channel_set_observer(
+      channel,
+      observer,
+      user,
+    );
+  }
+
+  late final _lw_data_channel_set_observerPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int Function(
+              ffi.Pointer<lw_data_channel_t>,
+              ffi.Pointer<LwDataChannelObserver>,
+              ffi.Pointer<ffi.Void>)>>('lw_data_channel_set_observer');
+  late final _lw_data_channel_set_observer =
+      _lw_data_channel_set_observerPtr.asFunction<
+          int Function(ffi.Pointer<lw_data_channel_t>,
+              ffi.Pointer<LwDataChannelObserver>, ffi.Pointer<ffi.Void>)>();
+
+  /// Removes and destroys the channel's observer, if any.
+  void lw_data_channel_remove_observer(
+    ffi.Pointer<lw_data_channel_t> channel,
+  ) {
+    return _lw_data_channel_remove_observer(
+      channel,
+    );
+  }
+
+  late final _lw_data_channel_remove_observerPtr = _lookup<
+          ffi
+          .NativeFunction<ffi.Void Function(ffi.Pointer<lw_data_channel_t>)>>(
+      'lw_data_channel_remove_observer');
+  late final _lw_data_channel_remove_observer =
+      _lw_data_channel_remove_observerPtr
+          .asFunction<void Function(ffi.Pointer<lw_data_channel_t>)>();
 
   /// Registers `observer` for `pc`, replacing any previous one. Returns 0 on
   /// success, negative on error. Remove it (or before releasing the pc) with
@@ -989,6 +1177,82 @@ typedef lw_stats_success_cbFunction = ffi.Void Function(
 typedef Dartlw_stats_success_cbFunction = void Function(
     ffi.Pointer<ffi.Char> json, ffi.Pointer<ffi.Void> user);
 
+final class lw_data_channel extends ffi.Opaque {}
+
+enum lw_data_channel_state {
+  LW_DATA_CHANNEL_CONNECTING(0),
+  LW_DATA_CHANNEL_OPEN(1),
+  LW_DATA_CHANNEL_CLOSING(2),
+  LW_DATA_CHANNEL_CLOSED(3);
+
+  final int value;
+  const lw_data_channel_state(this.value);
+
+  static lw_data_channel_state fromValue(int value) => switch (value) {
+        0 => LW_DATA_CHANNEL_CONNECTING,
+        1 => LW_DATA_CHANNEL_OPEN,
+        2 => LW_DATA_CHANNEL_CLOSING,
+        3 => LW_DATA_CHANNEL_CLOSED,
+        _ => throw ArgumentError(
+            "Unknown value for lw_data_channel_state: $value"),
+      };
+}
+
+/// Channel configuration. Pass NULL to lw_pc_create_data_channel for the
+/// defaults: ordered and reliable, which is what most callers want.
+///
+/// max_retransmit_time_ms and max_retransmits are the two ways to make a
+/// channel unreliable and are mutually exclusive; -1 leaves both unset.
+final class LwDataChannelInit extends ffi.Struct {
+  /// sizeof(LwDataChannelInit)
+  @ffi.Uint32()
+  external int size;
+
+  /// nonzero: deliver in order (default)
+  @ffi.Int32()
+  external int ordered;
+
+  /// -1 unset
+  @ffi.Int32()
+  external int max_retransmit_time_ms;
+
+  /// -1 unset
+  @ffi.Int32()
+  external int max_retransmits;
+
+  /// nonzero: agreed out of band, use `id`
+  @ffi.Int32()
+  external int negotiated;
+
+  /// channel id when negotiated
+  @ffi.Int32()
+  external int id;
+}
+
+/// ---- Data channel -----------------------------------------------------
+typedef lw_data_channel_t = lw_data_channel;
+
+/// Channel events, invoked on the signaling thread. Any field may be NULL. The
+/// struct is copied on registration; the function pointers and `user` must
+/// remain valid until the observer is removed.
+final class LwDataChannelObserver extends ffi.Struct {
+  /// sizeof(LwDataChannelObserver)
+  @ffi.Uint32()
+  external int size;
+
+  external ffi.Pointer<
+          ffi.NativeFunction<
+              ffi.Void Function(ffi.Int state, ffi.Pointer<ffi.Void> user)>>
+      on_state;
+
+  /// One message. `data` is owned by the callback (lw_string_free) and is
+  /// `size` bytes, with a NUL appended past them.
+  external ffi.Pointer<
+      ffi.NativeFunction<
+          ffi.Void Function(ffi.Pointer<ffi.Char> data, ffi.Uint32 size,
+              ffi.Int binary, ffi.Pointer<ffi.Void> user)>> on_message;
+}
+
 /// State values delivered to the observer callbacks below. These mirror the
 /// library's own RTC*State enums, which the shim static-asserts against, so a
 /// consumer needs only this header.
@@ -1130,8 +1394,15 @@ final class LwPcObserver extends ffi.Struct {
       ffi.NativeFunction<
           ffi.Void Function(ffi.Pointer<lw_transceiver_t> transceiver,
               ffi.Pointer<ffi.Void> user)>> on_track;
+
+  /// The far side opened a data channel. `channel` is an OWNING handle: retire
+  /// it with lw_release. Register an observer on it to receive messages.
+  external ffi.Pointer<
+      ffi.NativeFunction<
+          ffi.Void Function(ffi.Pointer<lw_data_channel_t> channel,
+              ffi.Pointer<ffi.Void> user)>> on_data_channel;
 }
 
-const int LW_ABI_VERSION = 6;
+const int LW_ABI_VERSION = 7;
 
 const int LW_MAX_PLANES = 4;

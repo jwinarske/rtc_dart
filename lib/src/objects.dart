@@ -237,6 +237,52 @@ class RtcPeerConnection extends RtcHandle {
   Future<void> setRemoteDescription(RtcSessionDescription description) =>
       _setSdp(library.bindings.lw_pc_set_remote_description, description);
 
+  /// Data channels the far side opened. Each event owns its channel: dispose
+  /// it when done, or let it be collected.
+  Stream<RtcDataChannel> get onDataChannel => _observer.dataChannel.stream;
+
+  /// Opens a data channel.
+  ///
+  /// Ordered and reliable by default. [maxRetransmits] and
+  /// [maxRetransmitTime] each make the channel unreliable and are mutually
+  /// exclusive; setting both is refused rather than silently preferring one.
+  RtcDataChannel createDataChannel(
+    String label, {
+    bool ordered = true,
+    int? maxRetransmits,
+    Duration? maxRetransmitTime,
+    bool negotiated = false,
+    int id = 0,
+  }) {
+    if (label.isEmpty) {
+      throw ArgumentError.value(label, 'label', 'must not be empty');
+    }
+    if (maxRetransmits != null && maxRetransmitTime != null) {
+      throw ArgumentError(
+          'maxRetransmits and maxRetransmitTime are mutually exclusive');
+    }
+    final init = pkg_ffi.calloc<lw.LwDataChannelInit>();
+    final name = label.toNativeUtf8();
+    try {
+      init.ref
+        ..size = ffi.sizeOf<lw.LwDataChannelInit>()
+        ..ordered = ordered ? 1 : 0
+        ..max_retransmit_time_ms = maxRetransmitTime?.inMilliseconds ?? -1
+        ..max_retransmits = maxRetransmits ?? -1
+        ..negotiated = negotiated ? 1 : 0
+        ..id = id;
+      final created = library.bindings.lw_pc_create_data_channel(
+          pointer.cast<lw.lw_pc_t>(), name.cast(), init);
+      if (created == ffi.nullptr) {
+        throw RtcNativeException('lw_pc_create_data_channel failed');
+      }
+      return RtcDataChannel._(created.cast(), library);
+    } finally {
+      pkg_ffi.malloc.free(name);
+      pkg_ffi.calloc.free(init);
+    }
+  }
+
   /// Transport statistics: RTP, RTCP, ICE and DTLS.
   ///
   /// One entry per report, each carrying its own `id`, `type` and `timestamp`
@@ -496,6 +542,18 @@ class _PcEvents {
       },
     );
 
+    _dataChannelCb = ffi.NativeCallable<_DataChannelCb>.listener(
+      (ffi.Pointer<lw.lw_data_channel_t> channel, ffi.Pointer<ffi.Void> _) {
+        // The event owns the handle, so it is released even if nobody is
+        // listening any more.
+        if (dataChannel.isClosed || _pc.isDisposed) {
+          _pc.library.bindings.lw_release(channel.cast());
+          return;
+        }
+        dataChannel.add(RtcDataChannel._(channel.cast(), _pc.library));
+      },
+    );
+
     final observer = pkg_ffi.calloc<lw.LwPcObserver>();
     try {
       observer.ref
@@ -506,7 +564,8 @@ class _PcEvents {
         ..on_ice_connection_state = _iceConnectionCb.nativeFunction
         ..on_ice_candidate = _iceCandidateCb.nativeFunction
         ..on_renegotiation_needed = _renegotiationCb.nativeFunction
-        ..on_track = _trackCb.nativeFunction;
+        ..on_track = _trackCb.nativeFunction
+        ..on_data_channel = _dataChannelCb.nativeFunction;
       // The struct is copied on registration, so it need not outlive this.
       final rc = _pc.library.bindings.lw_pc_set_observer(
           _pc.pointer.cast<lw.lw_pc_t>(), observer, ffi.nullptr);
@@ -528,6 +587,7 @@ class _PcEvents {
   final iceCandidate = StreamController<RtcIceCandidate>.broadcast();
   final renegotiationNeeded = StreamController<void>.broadcast();
   final track = StreamController<RtcTransceiver>.broadcast();
+  final dataChannel = StreamController<RtcDataChannel>.broadcast();
 
   late final ffi.NativeCallable<_StateCb> _signalingCb;
   late final ffi.NativeCallable<_StateCb> _connectionCb;
@@ -536,6 +596,7 @@ class _PcEvents {
   late final ffi.NativeCallable<_CandidateCb> _iceCandidateCb;
   late final ffi.NativeCallable<_VoidCb> _renegotiationCb;
   late final ffi.NativeCallable<_TrackCb> _trackCb;
+  late final ffi.NativeCallable<_DataChannelCb> _dataChannelCb;
 
   /// An event can still be in flight when the controller is being torn down;
   /// dropping it is correct, throwing into the isolate is not.
@@ -553,6 +614,7 @@ class _PcEvents {
     _iceCandidateCb.close();
     _renegotiationCb.close();
     _trackCb.close();
+    _dataChannelCb.close();
   }
 
   void dispose() {
@@ -569,6 +631,7 @@ class _PcEvents {
     iceCandidate.close();
     renegotiationNeeded.close();
     track.close();
+    dataChannel.close();
   }
 }
 
@@ -578,6 +641,10 @@ typedef _CandidateCb = ffi.Void Function(ffi.Pointer<ffi.Char>,
     ffi.Pointer<ffi.Char>, ffi.Int, ffi.Pointer<ffi.Void>);
 typedef _TrackCb = ffi.Void Function(
     ffi.Pointer<lw.lw_transceiver_t>, ffi.Pointer<ffi.Void>);
+typedef _DataChannelCb = ffi.Void Function(
+    ffi.Pointer<lw.lw_data_channel_t>, ffi.Pointer<ffi.Void>);
+typedef _ChannelMessageCb = ffi.Void Function(
+    ffi.Pointer<ffi.Char>, ffi.Uint32, ffi.Int, ffi.Pointer<ffi.Void>);
 
 /// A video source that frames are pushed into.
 ///
@@ -617,6 +684,201 @@ class RtcVideoSource extends RtcHandle {
     } finally {
       pkg_ffi.malloc.free(buffer);
     }
+  }
+}
+
+/// A data channel.
+///
+/// Messages arrive on [onMessage] and state changes on [onStateChange]. As
+/// with a peer connection's streams, listening registers a native callback
+/// that keeps the isolate alive, so a program that listens must dispose.
+class RtcDataChannel extends RtcHandle {
+  RtcDataChannel._(super.pointer, super.library);
+
+  StreamController<RtcDataChannelMessage>? _messages;
+  StreamController<RtcDataChannelState>? _states;
+  ffi.NativeCallable<_ChannelMessageCb>? _messageCb;
+  ffi.NativeCallable<_StateCb>? _stateCb;
+  bool _closed = false;
+
+  /// The label this channel was opened with.
+  String get label {
+    final value = library.bindings
+        .lw_data_channel_label(pointer.cast<lw.lw_data_channel_t>());
+    if (value == ffi.nullptr) {
+      throw RtcNativeException('lw_data_channel_label failed');
+    }
+    return _takeString(value);
+  }
+
+  /// The channel's id, or null before one is assigned.
+  int? get id {
+    final value = library.bindings
+        .lw_data_channel_id(pointer.cast<lw.lw_data_channel_t>());
+    return value >= 0 ? value : null;
+  }
+
+  /// The channel's current state.
+  RtcDataChannelState get state {
+    final value = library.bindings
+        .lw_data_channel_get_state(pointer.cast<lw.lw_data_channel_t>());
+    if (value < 0) {
+      throw RtcNativeException('lw_data_channel_get_state failed ($value)');
+    }
+    return dataChannelStateFromNative(value);
+  }
+
+  /// Bytes accepted for sending but not yet handed to the transport.
+  ///
+  /// Sending faster than the link drains grows this without bound, so a sender
+  /// that can outrun the link should watch it.
+  int get bufferedAmount => library.bindings
+      .lw_data_channel_buffered_amount(pointer.cast<lw.lw_data_channel_t>());
+
+  /// Sends [text] as a text message.
+  void sendText(String text) => _send(utf8.encode(text), binary: false);
+
+  /// Sends [data] as a binary message.
+  void sendBinary(Uint8List data) => _send(data, binary: true);
+
+  void _send(List<int> bytes, {required bool binary}) {
+    final buffer = pkg_ffi.malloc<ffi.Uint8>(bytes.isEmpty ? 1 : bytes.length);
+    try {
+      buffer.asTypedList(bytes.length).setAll(0, bytes);
+      final rc = library.bindings.lw_data_channel_send(
+        pointer.cast<lw.lw_data_channel_t>(),
+        buffer,
+        bytes.length,
+        binary ? 1 : 0,
+      );
+      if (rc != 0) {
+        throw RtcNativeException('lw_data_channel_send failed ($rc)');
+      }
+    } finally {
+      pkg_ffi.malloc.free(buffer);
+    }
+  }
+
+  /// Messages from the far side.
+  Stream<RtcDataChannelMessage> get onMessage {
+    _ensureObserver();
+    return _messages!.stream;
+  }
+
+  /// State changes from here on.
+  ///
+  /// Transitions only: a channel that is already open when you subscribe emits
+  /// nothing until it next changes. A channel arriving on
+  /// [RtcPeerConnection.onDataChannel] is often already open, so waiting for
+  /// an `open` on this stream would wait forever. Use [whenOpen], or read
+  /// [state].
+  Stream<RtcDataChannelState> get onStateChange {
+    _ensureObserver();
+    return _states!.stream;
+  }
+
+  /// Completes once the channel is open, immediately if it already is.
+  ///
+  /// Rejects if the channel is closing or closed, since it will not open.
+  Future<void> get whenOpen {
+    // The check and the subscription both run without an await between them,
+    // so no event can slip past in the gap.
+    switch (state) {
+      case RtcDataChannelState.open:
+        return Future<void>.value();
+      case RtcDataChannelState.closing:
+      case RtcDataChannelState.closed:
+        return Future<void>.error(
+            RtcNativeException('the channel is $state and will not open'));
+      case RtcDataChannelState.connecting:
+        return onStateChange
+            .firstWhere((s) => s != RtcDataChannelState.connecting)
+            .then((s) {
+          if (s != RtcDataChannelState.open) {
+            throw RtcNativeException('the channel went to $s instead of open');
+          }
+        });
+    }
+  }
+
+  void _ensureObserver() {
+    if (_messages != null) {
+      return;
+    }
+    final messages = StreamController<RtcDataChannelMessage>.broadcast();
+    final states = StreamController<RtcDataChannelState>.broadcast();
+
+    final messageCb = ffi.NativeCallable<_ChannelMessageCb>.listener(
+      (ffi.Pointer<ffi.Char> data, int size, int binary,
+          ffi.Pointer<ffi.Void> _) {
+        // Copy before freeing: the bytes are this callback's to retire.
+        final bytes =
+            Uint8List.fromList(data.cast<ffi.Uint8>().asTypedList(size));
+        library.bindings.lw_string_free(data);
+        if (!messages.isClosed) {
+          messages
+              .add(RtcDataChannelMessage(data: bytes, isBinary: binary != 0));
+        }
+      },
+    );
+    final stateCb = ffi.NativeCallable<_StateCb>.listener(
+      (int state, ffi.Pointer<ffi.Void> _) {
+        if (!states.isClosed) {
+          states.add(dataChannelStateFromNative(state));
+        }
+      },
+    );
+
+    final observer = pkg_ffi.calloc<lw.LwDataChannelObserver>();
+    try {
+      observer.ref
+        ..size = ffi.sizeOf<lw.LwDataChannelObserver>()
+        ..on_state = stateCb.nativeFunction
+        ..on_message = messageCb.nativeFunction;
+      final rc = library.bindings.lw_data_channel_set_observer(
+          pointer.cast<lw.lw_data_channel_t>(), observer, ffi.nullptr);
+      if (rc != 0) {
+        messageCb.close();
+        stateCb.close();
+        messages.close();
+        states.close();
+        throw RtcNativeException('lw_data_channel_set_observer failed ($rc)');
+      }
+    } finally {
+      pkg_ffi.calloc.free(observer);
+    }
+    _messages = messages;
+    _states = states;
+    _messageCb = messageCb;
+    _stateCb = stateCb;
+  }
+
+  /// Closes the channel. Idempotent; also run by [dispose].
+  void close() {
+    if (_closed || isDisposed) {
+      return;
+    }
+    _closed = true;
+    library.bindings
+        .lw_data_channel_close(pointer.cast<lw.lw_data_channel_t>());
+  }
+
+  @override
+  void beforeRelease() {
+    // Deregister before the callbacks behind it go away.
+    if (_messageCb != null) {
+      library.bindings.lw_data_channel_remove_observer(
+          pointer.cast<lw.lw_data_channel_t>());
+      _messageCb!.close();
+      _stateCb!.close();
+      _messageCb = null;
+      _stateCb = null;
+      _messages?.close();
+      _states?.close();
+      _messages = null;
+      _states = null;
+    }
+    close();
   }
 }
 
